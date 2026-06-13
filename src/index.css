@@ -42,3 +42,14 @@
 .input-field {
   @apply w-full px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600 transition-all duration-150;
 }
+
+/* Ocultar Barra de Ferramentas / Feedback do Vercel caso injetado pelo deploy */
+vercel-live-feedback,
+vercel-toolbar,
+#vercel-live-feedback,
+[data-vercel-toolbar],
+[id^="vercel-"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
