@@ -60,7 +60,7 @@ export default function Sidebar({ currentPath, navigate, user, onLogout, isDemo,
       <div id="mobile-header" className="md:hidden flex items-center justify-between bg-slate-900 text-white px-4 py-2 border-b border-slate-800 shrink-0 sticky top-0 z-30">
         <div className="flex items-center space-x-3">
           <AppLogo size={42} whiteText={true} />
-          <span className="font-sans font-extrabold text-base tracking-wide text-amber-50">Guardiões</span>
+          <span className="font-sans font-extrabold text-sm tracking-wide text-amber-50">Guardiões Atendimento</span>
         </div>
         <button 
           id="btn-toggle-menu"
@@ -97,7 +97,7 @@ export default function Sidebar({ currentPath, navigate, user, onLogout, isDemo,
             <AppLogo size={isExpanded ? 58 : 46} whiteText={true} />
             <div className={`flex flex-col whitespace-nowrap overflow-hidden transition-all duration-300 ${isExpanded ? 'opacity-100 w-auto' : 'opacity-0 w-0'}`}>
               <span className="font-sans font-extrabold text-base tracking-wide text-amber-50">Guardiões</span>
-              <span className="text-[10px] tracking-widest text-amber-400 font-mono uppercase mt-0.5">Gestão Hoteleira</span>
+              <span className="text-[10px] tracking-widest text-amber-400 font-mono uppercase mt-0.5">Do Atendimento</span>
             </div>
           </div>
 

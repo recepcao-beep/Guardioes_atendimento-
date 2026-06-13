@@ -38,15 +38,15 @@ export default function AppLogo({
           fill="transparent" 
         />
         
-        {/* Arched typography 'GUARDIÕES VILAGE INN' arched over the top */}
-        <text className="font-sans font-bold text-[14.5px] uppercase tracking-[0.16em]">
+        {/* Arched typography 'GUARDIÕES DO ATENDIMENTO' arched over the top */}
+        <text className="font-sans font-bold text-[12.5px] uppercase tracking-[0.14em]">
           <textPath 
             href="#text-curve-path-upper" 
             startOffset="50%" 
             textAnchor="middle"
             fill={whiteText ? '#FFFFFF' : goldColor}
           >
-            Guardiões Vilage Inn
+            Guardiões do Atendimento
           </textPath>
         </text>
 
