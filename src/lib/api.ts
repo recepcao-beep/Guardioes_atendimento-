@@ -953,6 +953,25 @@ export class ApiService {
     }
 
     try {
+      const apiResponse = await fetch('/api/track-redirect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json();
+        if (apiData?.error) {
+          throw new Error(apiData.error);
+        }
+        return { url: apiData.url, invite: apiData.invite, error: null };
+      }
+
+      if (apiResponse.status !== 404) {
+        const apiError = await apiResponse.json().catch(() => ({}));
+        console.warn("Server route '/api/track-redirect' did not complete. Trying Supabase Edge Function...", apiError.error || apiResponse.statusText);
+      }
+
       // Direct call to edge function track-redirect
       const { data, error } = await supabase!.functions.invoke('track-redirect', {
         body: { token }

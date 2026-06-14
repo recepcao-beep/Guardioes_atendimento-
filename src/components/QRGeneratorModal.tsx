@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Platform, ReviewInvite } from '../types';
 import { ApiService } from '../lib/api';
+import { isDemoMode } from '../lib/supabase';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface QRGeneratorModalProps {
@@ -45,7 +46,10 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated }:
   };
 
   const getFullTrackingUrl = (token: string) => {
-    return `${window.location.origin}/r/${token}`;
+    const configuredAppUrl = ((import.meta as any).env.VITE_APP_URL || '').trim().replace(/\/$/, '');
+    const appUrl = configuredAppUrl || window.location.origin;
+    const trackingPath = isDemoMode ? `/r/${token}` : `/api/r/${token}`;
+    return `${appUrl}${trackingPath}`;
   };
 
   // 1. GENERATE QR CODE PATHWAY

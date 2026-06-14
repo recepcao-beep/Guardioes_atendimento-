@@ -68,10 +68,10 @@ export default function PublicFormsView({ token, isInternalFormExplicit = false 
           setPlatformName(deducedPlatform);
           setViewState('redirection');
           
-          // Delayed elegant replace to avoid popping blocked browser states
+          // Keep the branded bridge brief: tracking is already done at this point.
           setTimeout(() => {
             window.location.replace(res.url);
-          }, 2400);
+          }, 350);
         }
 
       } catch (err: any) {
