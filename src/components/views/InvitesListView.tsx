@@ -179,7 +179,9 @@ export default function InvitesListView({
       return currentList.filter(inv => {
         const phone = (inv.guest_phone_masked || '').toLowerCase();
         const token = (inv.token || '').toLowerCase();
-        return phone.includes(q) || token.includes(q);
+        const guest = (inv.guest_name || '').toLowerCase();
+        const room = (inv.room_number || '').toLowerCase();
+        return phone.includes(q) || token.includes(q) || guest.includes(q) || room.includes(q);
       });
     }
 
@@ -224,7 +226,7 @@ export default function InvitesListView({
 
       {/* 2. Grid of Brand Platform Cards
          - Centered layout, identical sizing, no extra text row labels, highly visual and mobile-optimized */}
-      <div id="platform-grid-buttons" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
+      <div id="platform-grid-buttons" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-fade-in">
         {platforms.filter(p => p.active).map((plat) => {
           let buttonClass = "";
           let logoSvg: React.ReactNode = null;
@@ -251,7 +253,7 @@ export default function InvitesListView({
               key={plat.id}
               onClick={() => setSelectedPlatformForModal(plat)}
               id={`btn-platform-invite-${plat.code}`}
-              className={`h-28 w-full flex items-center justify-center p-6 rounded-[22px] border shadow-sm transition-all duration-200 active:scale-95 group cursor-pointer ${buttonClass}`}
+              className={`h-24 w-full flex items-center justify-center p-6 rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 group cursor-pointer ${buttonClass}`}
               title={`Emitir convite para ${plat.name}`}
             >
               {logoSvg}
@@ -310,7 +312,7 @@ export default function InvitesListView({
           </div>
 
           {/* Search bar inside Division controls */}
-          <div className="relative w-full md:w-64">
+          <div className="relative w-full md:w-72">
             <span className="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">
               <Search className="h-3.5 w-3.5" />
             </span>
@@ -568,6 +570,7 @@ export default function InvitesListView({
           platform={selectedPlatformForModal}
           onClose={() => setSelectedPlatformForModal(null)}
           onInviteCreated={onInviteCreated}
+          onInviteUpdated={onInviteUpdated}
         />
       )}
 

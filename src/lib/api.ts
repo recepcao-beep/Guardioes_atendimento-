@@ -1384,6 +1384,34 @@ export class ApiService {
     try {
       if (!supabase) throw new Error('Supabase cliente não está inicializado.');
       
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (accessToken) {
+        const apiResponse = await fetch('/api/update-invite-guest', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            invite_id: inviteId,
+            guest_name: guestName,
+            room_number: roomNumber
+          })
+        });
+
+        if (apiResponse.ok) {
+          const apiData = await apiResponse.json();
+          return { success: true, error: null, invite: apiData.invite };
+        }
+
+        if (apiResponse.status === 401 || apiResponse.status === 403) {
+          const apiError = await apiResponse.json().catch(() => ({}));
+          return { success: false, error: apiError.error || 'Sem permissao para atualizar este convite.', invite: null };
+        }
+      }
+
       const { data, error } = await supabase
         .from('review_invites')
         .update({ 

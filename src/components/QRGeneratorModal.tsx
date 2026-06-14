@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { 
   X, QrCode, Send, Copy, Download, 
-  Check, ChevronRight
+  Check, ChevronRight, Edit3
 } from 'lucide-react';
 import { Platform, ReviewInvite } from '../types';
 import { ApiService } from '../lib/api';
@@ -12,9 +12,10 @@ interface QRGeneratorModalProps {
   platform: Platform;
   onClose: () => void;
   onInviteCreated: (invite: ReviewInvite) => void;
+  onInviteUpdated?: (invite: ReviewInvite) => void;
 }
 
-export default function QRGeneratorModal({ platform, onClose, onInviteCreated }: QRGeneratorModalProps) {
+export default function QRGeneratorModal({ platform, onClose, onInviteCreated, onInviteUpdated }: QRGeneratorModalProps) {
   const [activeTab, setActiveTab] = useState<'options' | 'qr' | 'whatsapp'>('options');
   const [guestName, setGuestName] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
@@ -24,6 +25,8 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated }:
   const [loading, setLoading] = useState(false);
   const [generatedInvite, setGeneratedInvite] = useState<ReviewInvite | null>(null);
   const [whatsappUrl, setWhatsappUrl] = useState('');
+  const [editingIssuedData, setEditingIssuedData] = useState(false);
+  const [savingIssuedData, setSavingIssuedData] = useState(false);
   const qrRef = useRef<SVGSVGElement>(null);
 
   const hasGuestInfo = guestName.trim().length > 0 && roomNumber.trim().length > 0;
@@ -144,6 +147,32 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated }:
     navigator.clipboard.writeText(trackingUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleIssuedDataSave = async () => {
+    if (!generatedInvite) return;
+    if (!guestName.trim() || !roomNumber.trim()) {
+      alert('Preencha o nome e o apartamento antes de salvar.');
+      return;
+    }
+
+    setSavingIssuedData(true);
+    try {
+      const res = await ApiService.updateInviteGuest(generatedInvite.id, guestName.trim(), roomNumber.trim());
+      if (res.error || !res.invite) {
+        alert(`Erro ao atualizar dados: ${res.error || 'convite nao retornado'}`);
+        return;
+      }
+
+      setGeneratedInvite(res.invite);
+      onInviteUpdated?.(res.invite);
+      setEditingIssuedData(false);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Falha ao atualizar dados do convite.');
+    } finally {
+      setSavingIssuedData(false);
+    }
   };
 
   const handleDownloadQR = () => {
@@ -323,6 +352,65 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated }:
                 <p className="text-[11px] text-slate-500 leading-relaxed font-light">
                   Emitido para <span className="font-bold text-slate-700">{guestName}</span> (Apto <span className="font-bold text-slate-700">{roomNumber}</span>). Apresente a tela para o hóspede escanear.
                 </p>
+              </div>
+
+              <div className="w-full rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-left space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                      Dados para conferencia
+                    </p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed mt-0.5">
+                      Ajuste o nome publico visto no Google/Trip antes de bater a avaliacao.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingIssuedData(prev => !prev)}
+                    className="h-8 px-2.5 rounded-lg border border-amber-200 bg-white text-amber-800 hover:bg-amber-100 text-[11px] font-bold inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    <span>{editingIssuedData ? 'Fechar' : 'Editar'}</span>
+                  </button>
+                </div>
+
+                {editingIssuedData ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_96px] gap-2">
+                    <input
+                      type="text"
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      className="h-9 rounded-lg border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
+                      placeholder="Nome real ou nome publico"
+                    />
+                    <input
+                      type="text"
+                      value={roomNumber}
+                      onChange={(e) => setRoomNumber(e.target.value)}
+                      className="h-9 rounded-lg border border-amber-200 bg-white px-3 text-xs font-mono font-bold text-slate-800 outline-none focus:border-amber-500"
+                      placeholder="Apto"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleIssuedDataSave}
+                      disabled={savingIssuedData}
+                      className="sm:col-span-2 h-9 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                    >
+                      {savingIssuedData ? 'Salvando...' : 'Salvar dados do convite'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-lg bg-white border border-amber-100 px-2.5 py-2">
+                      <span className="block text-[9px] uppercase font-bold text-slate-400">Nome atual</span>
+                      <strong className="block text-slate-800 truncate">{guestName}</strong>
+                    </div>
+                    <div className="rounded-lg bg-white border border-amber-100 px-2.5 py-2">
+                      <span className="block text-[9px] uppercase font-bold text-slate-400">Apartamento</span>
+                      <strong className="block text-slate-800 font-mono truncate">{roomNumber}</strong>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* QR actions */}
