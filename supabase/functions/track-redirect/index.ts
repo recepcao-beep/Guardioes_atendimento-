@@ -73,7 +73,7 @@ serve(async (req) => {
 
     // Determine target URL redirect
     let redirectUrl = platform.external_url;
-    if (platform.code === "internal") {
+    if (platform.code === "internal" && (!redirectUrl || redirectUrl.trim() === "" || redirectUrl.includes("avaliacao-interna"))) {
       redirectUrl = `/avaliacao-interna/${token}`;
     }
 

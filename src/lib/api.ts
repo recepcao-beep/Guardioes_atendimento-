@@ -1005,10 +1005,13 @@ export class ApiService {
           metadata: { date: now, platform_code: (platform as any).code }
         });
 
-        // Determine target URL redirect
-        let redirectUrl = (platform as any).external_url;
-
-        return { url: redirectUrl, invite: updatedinvite, error: null };
+         // Determine target URL redirect
+         let redirectUrl = (platform as any).external_url;
+         if ((platform as any).code === "internal" && (!redirectUrl || redirectUrl.trim() === "" || redirectUrl.includes("avaliacao-interna"))) {
+           redirectUrl = `/avaliacao-interna/${token}`;
+         }
+ 
+         return { url: redirectUrl, invite: updatedinvite, error: null };
       } catch (err: any) {
         console.error('Database fallback failed, returning DemoDb fallback', err);
         return DemoDb.trackRedirect(token);
@@ -1225,6 +1228,90 @@ export class ApiService {
     }
   }
 
+  static async createBookingDirectReview(
+    guardianId: string, 
+    guestName: string, 
+    roomNumber: string, 
+    notes: string, 
+    ratingValue: number
+  ): Promise<{ success: boolean; error: string | null }> {
+    const actor = getSessionUser()!;
+    if (isDemoMode) {
+      return Promise.resolve(DemoDb.createBookingDirectReview(actor, guardianId, guestName, roomNumber, notes, ratingValue));
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente não está inicializado.');
+      
+      // Get Platform ID for booking
+      const { data: platform } = await supabase
+        .from('platforms')
+        .select('*')
+        .eq('code', 'booking')
+        .single();
+        
+      if (!platform) throw new Error('Plataforma Booking não cadastrada no banco.');
+
+      // Get Guardian's Profile to read their sector
+      const { data: guardian } = await supabase
+        .from('profiles')
+        .select('sector_id')
+        .eq('id', guardianId)
+        .single();
+
+      const token = `booking-attr-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+      // Insert review_invite directly
+      const { data: invite, error: inviteError } = await supabase
+        .from('review_invites')
+        .insert({
+          token,
+          issuer_user_id: guardianId,
+          issuer_sector_id: guardian?.sector_id || null,
+          platform_id: platform.id,
+          method: 'assisted',
+          guest_name: guestName,
+          room_number: roomNumber || null,
+          status: 'externally_verified_manual',
+          opened_count: 1,
+          first_opened_at: new Date().toISOString(),
+          last_opened_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (inviteError) throw inviteError;
+
+      // Insert confirmation
+      const { error: confError } = await supabase
+        .from('external_review_confirmations')
+        .insert({
+          invite_id: invite.id,
+          platform_id: platform.id,
+          confirmation_type: 'manual',
+          external_review_reference: `Booking.com - Nota ${ratingValue}/10`,
+          confirmed_by: actor.full_name,
+          notes: notes || 'Atribuição direta de avaliação do Booking.com pelo administrador.'
+        });
+
+      if (confError) throw confError;
+
+      // Audit Log
+      await supabase.from('audit_logs').insert({
+        actor_user_id: actor.id,
+        action: 'atribuição direta avaliacao booking',
+        entity_type: 'review_invites',
+        entity_id: invite.id,
+        metadata: { guardianId, guestName, ratingValue }
+      });
+
+      return { success: true, error: null };
+    } catch (e: any) {
+      console.warn("Direct Booking insert failed, trying demo DB fallback", e);
+      return DemoDb.createBookingDirectReview(actor, guardianId, guestName, roomNumber, notes, ratingValue);
+    }
+  }
+
   static async invalidateInvite(inviteId: string): Promise<{ success: boolean; error: string | null }> {
     const actor = getSessionUser()!;
     if (isDemoMode) {
@@ -1267,6 +1354,52 @@ export class ApiService {
       return { success: true, error: null };
     } catch (e: any) {
       return { success: false, error: e.message };
+    }
+  }
+
+  static async updateInviteGuest(inviteId: string, guestName: string, roomNumber: string): Promise<{ success: boolean; error: string | null; invite: ReviewInvite | null }> {
+    const actor = getSessionUser()!;
+    if (isDemoMode) {
+      return Promise.resolve(DemoDb.updateInviteGuest(actor, inviteId, guestName, roomNumber));
+    }
+    try {
+      if (!supabase) throw new Error('Supabase cliente não está inicializado.');
+      
+      const { data, error } = await supabase
+        .from('review_invites')
+        .update({ 
+          guest_name: guestName, 
+          room_number: roomNumber, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', inviteId)
+        .select()
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Update matching complaints if any
+      await supabase
+        .from('complaints')
+        .update({
+          guest_name: guestName,
+          room_number: roomNumber,
+          updated_at: new Date().toISOString()
+        })
+        .eq('invite_id', inviteId);
+
+      // Audit log
+      await supabase.from('audit_logs').insert({
+        actor_user_id: actor.id,
+        action: 'edição de dados do hóspede do convite',
+        entity_type: 'review_invites',
+        entity_id: inviteId,
+        metadata: { guest_name: guestName, room_number: roomNumber }
+      });
+
+      return { success: true, error: null, invite: data };
+    } catch (e: any) {
+      return { success: false, error: e.message, invite: null };
     }
   }
 

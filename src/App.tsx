@@ -463,6 +463,9 @@ export default function App() {
               // Prepend newly created item directly in memory state for real-time reactivity!
               setInvites(prev => [newInv, ...prev]);
             }}
+            onInviteUpdated={(updatedInv) => {
+              setInvites(prev => prev.map(inv => inv.id === updatedInv.id ? updatedInv : inv));
+            }}
           />
         );
 
@@ -479,7 +482,14 @@ export default function App() {
 
       case '/listagem-booking':
         return (
-          <BookingListView />
+          <BookingListView 
+            user={currentUser}
+            profiles={profiles}
+            sectors={sectors}
+            invites={invites}
+            weights={weights}
+            onRefresh={triggerRefresh}
+          />
         );
 
       // ADMINISTRATIVE ROUTES (ADMIN ONLY - BLOCK SUB-GUARDIANS)

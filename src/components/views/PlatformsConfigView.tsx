@@ -184,25 +184,23 @@ export default function PlatformsConfigView({ platforms, onRefresh }: PlatformsC
                   </div>
                 </div>
 
-                {editingPlatform.code !== 'internal' && (
-                  <div className="sm:col-span-2 space-y-1.5">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase">URL do Perfil Público (Avaliação Oficial)</label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
-                        <Link2 className="h-3.5 w-3.5" />
-                      </div>
-                      <input
-                        type="url"
-                        required
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        placeholder="https://g.page/r/hotel-perfil/review"
-                        className="w-full text-xs pl-8 border border-slate-200 p-2 rounded-lg bg-slate-50 outline-none font-mono"
-                      />
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">URL do Perfil Público ou Pesquisa de Satisfação</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Link2 className="h-3.5 w-3.5" />
                     </div>
-                    <p className="text-[10px] text-slate-400">O hóspede será encaminhado de forma segura após o escaneamento do código ou abertura do link de WhatsApp.</p>
+                    <input
+                      type="url"
+                      required
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://g.page/r/hotel-perfil/review"
+                      className="w-full text-xs pl-8 border border-slate-200 p-2 rounded-lg bg-slate-50 outline-none font-mono"
+                    />
                   </div>
-                )}
+                  <p className="text-[10px] text-slate-400">O hóspede será encaminhado de forma segura após o escaneamento do código ou abertura do link de WhatsApp.</p>
+                </div>
 
                 <div className="sm:col-span-2 space-y-1.5">
                   <div className="flex justify-between items-center">

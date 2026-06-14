@@ -1018,6 +1018,9 @@ export class DemoDb {
 
     // Determine target URL
     let targetUrl = plat.external_url;
+    if (plat.code === "internal" && (!targetUrl || targetUrl.trim() === "" || targetUrl.includes("avaliacao-interna"))) {
+      targetUrl = `/avaliacao-interna/${token}`;
+    }
 
     return { url: targetUrl, invite: updatedInvite, error: null };
   }
@@ -1099,6 +1102,78 @@ export class DemoDb {
     return { confirmation: newConf, error: null };
   }
 
+  // CREATE BOOKING DIRECT REVIEW
+  static createBookingDirectReview(
+    adminProfile: Profile,
+    guardianId: string,
+    guestName: string,
+    roomNumber: string,
+    notes: string,
+    ratingValue: number
+  ): { success: boolean; error: string | null } {
+    const profiles = this.getProfiles();
+    const targetGuardian = profiles.find(p => p.id === guardianId);
+    if (!targetGuardian) return { success: false, error: 'Guardião selecionado não foi encontrado.' };
+
+    const platforms = this.getPlatforms();
+    const bookingPlatform = platforms.find(p => p.code === 'booking');
+    if (!bookingPlatform) return { success: false, error: 'Plataforma Booking.com não configurada.' };
+
+    const invites = this.getInvites();
+    const confirmations = this.getConfirmations();
+
+    const inviteId = `inv-booking-${Date.now()}`;
+    const token = `booking-attr-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+    // Create high quality review_invite on his behalf
+    const newInvite: ReviewInvite = {
+      id: inviteId,
+      token,
+      issuer_user_id: guardianId,
+      issuer_sector_id: targetGuardian.sector_id,
+      platform_id: bookingPlatform.id,
+      method: 'assisted',
+      guest_phone_masked: null,
+      guest_name: guestName,
+      room_number: roomNumber || null,
+      status: 'externally_verified_manual',
+      opened_count: 1,
+      first_opened_at: getNowString(),
+      last_opened_at: getNowString(),
+      created_at: getNowString(),
+      updated_at: getNowString()
+    };
+
+    invites.push(newInvite);
+    this.saveInvites(invites);
+
+    // Create confirmation
+    const newConf: ExternalReviewConfirmation = {
+      id: `conf-booking-${Date.now()}`,
+      invite_id: inviteId,
+      platform_id: bookingPlatform.id,
+      confirmation_type: 'manual',
+      external_review_reference: `Booking.com - Nota ${ratingValue}/10`,
+      confirmed_by: adminProfile.full_name,
+      notes: notes || 'Atribuição direta de avaliação Booking.com.',
+      created_at: getNowString()
+    };
+
+    confirmations.push(newConf);
+    this.saveConfirmations(confirmations);
+
+    this.addAuditLog(
+      adminProfile.id,
+      adminProfile.full_name,
+      'atribuição direta avaliacao booking',
+      'review_invites',
+      inviteId,
+      { guardianId, guestName, ratingValue }
+    );
+
+    return { success: true, error: null };
+  }
+
   // REMOVE EXTERNAL CONFIRMATION
   static removeExternalConfirmation(adminProfile: Profile, inviteId: string): { success: boolean; error: string | null } {
     const invites = this.getInvites();
@@ -1168,6 +1243,34 @@ export class DemoDb {
 
     this.addAuditLog(adminProfile.id, adminProfile.full_name, 'regresso para aguardando aprovação', 'review_invites', inviteId);
     return { success: true, error: null };
+  }
+
+  // EDIT GUEST DATA
+  static updateInviteGuest(actor: Profile, inviteId: string, guestName: string, roomNumber: string): { success: boolean; error: string | null; invite: ReviewInvite | null } {
+    const invites = this.getInvites();
+    const invitesIndex = invites.findIndex(i => i.id === inviteId);
+    if (invitesIndex === -1) return { success: false, error: 'Convite não encontrado.', invite: null };
+
+    const invite = invites[invitesIndex];
+    invite.guest_name = guestName;
+    invite.room_number = roomNumber;
+    invite.updated_at = getNowString();
+    
+    // Also update dynamic logs or complaints linked to this invite if any
+    const complaints = this.getComplaints();
+    const complaintsIndex = complaints.findIndex(c => c.invite_id === inviteId);
+    if (complaintsIndex !== -1) {
+      complaints[complaintsIndex].guest_name = guestName;
+      complaints[complaintsIndex].room_number = roomNumber;
+      complaints[complaintsIndex].updated_at = getNowString();
+      this.saveComplaints(complaints);
+    }
+
+    invites[invitesIndex] = invite;
+    this.saveInvites(invites);
+
+    this.addAuditLog(actor.id, actor.full_name, 'edição de dados do hóspede do convite', 'review_invites', inviteId, { guestName, roomNumber });
+    return { success: true, error: null, invite };
   }
 
   // SAVE WEIGHTS

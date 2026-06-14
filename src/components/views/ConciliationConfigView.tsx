@@ -57,6 +57,10 @@ export default function ConciliationConfigView({
   const [showWebhookSettings, setShowWebhookSettings] = useState(false);
   const [webhookStatus, setWebhookStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+  // Interactive python script view states
+  const [showPythonScript, setShowPythonScript] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
   // Group invites by status to match the 3 requested divisions
   const pendingInvites = useMemo(() => {
     return invites.filter(inv => ['emitted', 'opened'].includes(inv.status));
@@ -433,31 +437,39 @@ export default function ConciliationConfigView({
       </div>
 
       {/* 1.5 Webhook configuration panel */}
-      <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between">
+      <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-205 pb-3">
           <button
             type="button"
-            onClick={() => setShowWebhookSettings(!showWebhookSettings)}
+            onClick={() => {
+              setShowWebhookSettings(!showWebhookSettings);
+              if (showPythonScript) setShowPythonScript(false);
+            }}
             className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-amber-500 dark:hover:text-amber-500 transition-colors cursor-pointer"
           >
             <Settings className="w-4 h-4 text-amber-500" />
-            <span>Configurar Webhook do Robô Python (Integração Real)</span>
+            <span>Configurar Webhook do Robô Python</span>
             <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">
-              {webhookUrl ? '• URL: ' + webhookUrl.substring(0, 30) + (webhookUrl.length > 30 ? '...' : '') : '• Apenas simulação local de verificação'}
+              {webhookUrl ? '• Ativo' : '• Simulação'}
             </span>
           </button>
           
           <button
             type="button"
-            onClick={() => setShowWebhookSettings(!showWebhookSettings)}
-            className="text-xs font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+            onClick={() => {
+              setShowPythonScript(!showPythonScript);
+              if (showWebhookSettings) setShowWebhookSettings(false);
+            }}
+            className="flex items-center gap-2 text-xs font-bold text-amber-600 hover:text-amber-500 transition-colors cursor-pointer"
           >
-            {showWebhookSettings ? 'Ocultar' : 'Configurar'}
+            <Terminal className="w-4 h-4" />
+            <span>Código do Robô Python & Variáveis Vercel</span>
+            <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-600 rounded">Pronto</span>
           </button>
         </div>
 
         {showWebhookSettings && (
-          <div className="mt-4 pt-4 border-t border-slate-200/55 dark:border-slate-800 space-y-4 animate-fade-in text-xs">
+          <div className="pt-2 space-y-4 animate-fade-in text-xs">
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
               O robô Python pode rodar em qualquer máquina ou servidor de sua escolha (como <strong>Google Cloud Run</strong>, <strong>Railway</strong> ou <strong>GitHub Actions</strong>). 
               Insira a URL do Webhook do seu servidor abaixo. Ao disparar o robô, enviaremos um HTTP POST contendo os convites pendentes e os nomes dos hóspedes para que sua rotina faça a varredura e confirme via API.
@@ -515,6 +527,214 @@ export default function ConciliationConfigView({
               >
                 Salvar Configuração de Webhook
               </button>
+            </div>
+          </div>
+        )}
+
+        {showPythonScript && (
+          <div className="pt-2 space-y-4 animate-fade-in text-xs">
+            <div className="bg-amber-100/40 dark:bg-amber-950/20 border border-amber-200/50 p-3.5 rounded-xl">
+              <h4 className="font-bold text-amber-800 dark:text-amber-300 text-xs flex items-center gap-1.5 mb-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 hover:scale-105 transition-transform" />
+                Variáveis do Vercel requisitadas para o seu Deploy
+              </h4>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
+                Ao implantar o app na <strong>Vercel</strong>, insira as variáveis de ambiente a seguir em <em>Project Settings e Environment Variables</em>, permitindo conexões seguras e o fluxo completo com o Supabase:
+              </p>
+              
+              <div className="overflow-x-auto rounded-lg border border-slate-200/60 dark:border-slate-800/80">
+                <table className="w-full text-left font-mono text-[10px] text-slate-700 dark:text-slate-300 bg-white/60 dark:bg-black/30">
+                  <thead>
+                    <tr className="bg-slate-200/50 dark:bg-slate-800/80 text-[9px] uppercase tracking-wider font-sans font-extrabold text-slate-500">
+                      <th className="p-2.5">Nome da Variável (.env)</th>
+                      <th className="p-2.5">Valor Sugerido / Função</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    <tr>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">VITE_SUPABASE_URL</td>
+                      <td className="p-2.5 font-sans leading-relaxed">URL do seu projeto no Supabase (copie do painel Supabase).</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">VITE_SUPABASE_ANON_KEY</td>
+                      <td className="p-2.5 font-sans leading-relaxed">Chave anon_public_key para consultas de clientes.</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">SUPABASE_SERVICE_ROLE_KEY</td>
+                      <td className="p-2.5 font-sans text-amber-700 dark:text-amber-400 font-semibold leading-relaxed">Chave service_role (vital para que requisições administrativas de Guardiões e Pontos burlem restrições com total isolamento).</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">ADMIN_INITIAL_PASSWORD</td>
+                      <td className="p-2.5 font-sans leading-relaxed">Defina a senha máster inicial (Ex: <span className="font-mono">0000</span> ou a de sua escolha).</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2.5 font-bold text-slate-900 dark:text-white">VITE_APP_URL</td>
+                      <td className="p-2.5 font-sans leading-relaxed">A URL final do seu app Vercel (Ex: <span className="font-mono">https://guardioes-atendimento.vercel.app</span>).</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <h4 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Bot className="w-4 h-4 text-amber-500 animate-pulse" />
+                    Robô Selenium Python Pronto (Dados Incorporados)
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Este script Selenium se autentica no myHotel com suas credenciais e vasculha o container da primeira avaliação extraindo o nome do hóspede.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const codeElement = document.getElementById('python-selenium-real-code');
+                    if (codeElement) {
+                      navigator.clipboard.writeText(codeElement.innerText);
+                      setCopiedScript(true);
+                      setTimeout(() => setCopiedScript(false), 2000);
+                    }
+                  }}
+                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] px-3.5 py-1.5 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-center shrink-0 select-none"
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>{copiedScript ? 'Copiado!' : 'Copiar Código Python'}</span>
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-900 dark:bg-slate-950 p-4 text-slate-300 font-mono text-[10px] leading-relaxed max-h-80 overflow-y-auto">
+                <pre id="python-selenium-real-code" className="whitespace-pre select-text text-left">
+{`# -*- coding: utf-8 -*-
+import os
+import time
+import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+
+# --- CONFIGURAÇÕES PORTAL MYHOTEL (SISTEMA GUARDIÕES) ---
+LOGIN_URL = "https://fidelity.myhotel.cl/login"
+USERNAME = "governanta@vilageinn.com.br"
+PASSWORD = "Governanta2*"
+
+# --- XPATHS ENVIADOS E CONFIGURADOS ---
+XPATH_USER_INPUT = "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[1]/input"
+XPATH_PASS_INPUT = "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[2]/input"
+XPATH_LOGIN_BTN = "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[4]/div/button"
+XPATH_ONLINE_BTN = "/html/body/app-root/ng-component/div/mat-drawer-container/mat-drawer-content/mat-sidenav-container/mat-sidenav/div/mh-navbar/aside/tree-root/div/div[4]/div/div/mh-navbar-item/div"
+XPATH_REVIEW_CONTAINER = "/html/body/app-root/ng-component/div/mat-drawer-container/mat-drawer-content/mat-sidenav-container/mat-sidenav-content/div/mh-online/mh-alerts-wrapper/div/mh-core-lib-content/section/section[2]/mh-reviews/mh-review-list/mh-core-lib-loader-wrapper/div/mh-single-review[1]/div"
+XPATH_GUEST_NAME = "/html/body/app-root/ng-component/div/mat-drawer-container/mat-drawer-content/mat-sidenav-container/mat-sidenav-content/div/mh-online/mh-alerts-wrapper/div/mh-core-lib-content/section/section[2]/mh-reviews/mh-review-list/mh-core-lib-loader-wrapper/div/mh-single-review[1]/div/div[1]/p"
+
+# --- WEBHOOK DA SUA INSTÂNCIA VERCEL ---
+VERCEL_WEBHOOK_URL = "${webhookUrl || 'https://guardioes-atendimento.vercel.app/api/confirm-review'}"
+WEBHOOK_SECURITY_TOKEN = "${webhookToken || 'Bearer MEU_TOKEN_SEGURO_ROBO_API'}"
+
+def iniciar_navegador():
+    print("[ROBÔ] Inicializando WebDriver do Chrome...")
+    options = Options()
+    # Ativar modo headless (em segundo plano) se rodar em servidores como Linux Server / Docker
+    # options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(options=options)
+    driver.implicitly_wait(10)
+    return driver
+
+def extrair_hospede_recente():
+    driver = iniciar_navegador()
+    hospedes_encontrados = []
+    
+    try:
+        print(f"[ROBÔ] Navegando ao link de login: {LOGIN_URL}")
+        driver.get(LOGIN_URL)
+        
+        wait = WebDriverWait(driver, 20)
+        
+        # 1. Digitar Usuário
+        print(f"[ROBÔ] Preenchendo campo de login: {USERNAME}")
+        user_input = wait.until(EC.presence_of_element_located((By.XPATH, XPATH_USER_INPUT)))
+        user_input.clear()
+        user_input.send_keys(USERNAME)
+        
+        # 2. Digitar Senha
+        print("[ROBÔ] Preenchendo campo de senha...")
+        pass_input = driver.find_element(By.XPATH, XPATH_PASS_INPUT)
+        pass_input.clear()
+        pass_input.send_keys(PASSWORD)
+        
+        # 3. Executar clique login
+        print("[ROBÔ] Clicando no botao Entrar...")
+        btn_login = driver.find_element(By.XPATH, XPATH_LOGIN_BTN)
+        btn_login.click()
+        
+        time.sleep(6) # Aguardar redirecionamento completo
+        
+        # 4. Navegar ao menu de avaliações ONLINE
+        print("[ROBÔ] Navegando para o modulo ONLINE no menu lateral...")
+        btn_online = wait.until(EC.element_to_be_clickable((By.XPATH, XPATH_ONLINE_BTN)))
+        btn_online.click()
+        
+        print("[ROBÔ] Aguardando carregamento dos cartões de feedbacks...")
+        time.sleep(5)
+        
+        # 5. Capturar nome do hóspede recente
+        try:
+            print("[ROBÔ] Buscando o container da avaliacao pelo XPath...")
+            review_box = wait.until(EC.presence_of_element_located((By.XPATH, XPATH_REVIEW_CONTAINER)))
+            name_p = review_box.find_element(By.XPATH, XPATH_GUEST_NAME)
+            guest_name = name_p.text.strip()
+            
+            print(f"[ROBÔ] SUCESSO! Hóspede localizado: '{guest_name}'")
+            if guest_name:
+                hospedes_encontrados.append(guest_name)
+        except Exception as box_err:
+            print(f"[INFO] Erro ao localizar container ou texto de hóspede: {box_err}")
+            
+    except Exception as general_err:
+        print(f"[ERRO GERAL] Falha crítica de execução no Selenium: {general_err}")
+    finally:
+        print("[ROBÔ] Fechando navegador.")
+        driver.quit()
+        
+    return hospedes_encontrados
+
+def disparar_webhook_guardioes(lista_hospedes):
+    if not lista_hospedes:
+        print("[ROBÔ] Lista de hóspedes vazia. Nenhuma conciliação iniciada.")
+        return
+        
+    print(f"[ROBÔ] Enviando Webhook para {VERCEL_WEBHOOK_URL}...")
+    
+    payload = {
+        "event": "myhotel_leads_extracted",
+        "hospedes": lista_hospedes,
+        "notes": "Pesquisa automatizada via Robô Python de Conciliação.",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": WEBHOOK_SECURITY_TOKEN
+    }
+    
+    try:
+        response = requests.post(VERCEL_WEBHOOK_URL, json=payload, headers=headers, timeout=15)
+        print(f"[MENSAGEM SERVIDOR] Retornou Código {response.status_code}: {response.text}")
+    except Exception as exc:
+        print(f"[ERRO WEBHOOK] Falha ao comunicar com o Vercel: {exc}")
+
+if __name__ == "__main__":
+    print("=================== INICIANDO ROBÔ DE CONCILIAÇÃO DE LEADS ===================")
+    dados = extrair_hospede_recente()
+    disparar_webhook_guardioes(dados)
+    print("=================== ROTINA SCRAPPING CONCLUÍDA COM SULCESSO ===================")`}
+                </pre>
+              </div>
             </div>
           </div>
         )}
