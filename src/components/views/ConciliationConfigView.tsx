@@ -464,17 +464,6 @@ export default function ConciliationConfigView({
           <span>{robotWorkflowLoading ? 'Rodando na nuvem...' : 'Rodar robo na nuvem'}</span>
         </button>
 
-        <button
-          onClick={runRobotSimulation}
-          disabled={isSimulating}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-sm shrink-0 border
-            ${isSimulating 
-              ? 'bg-amber-100 text-amber-800 border-amber-200 animate-pulse' 
-              : 'bg-amber-500 text-slate-950 border-amber-600/10 hover:bg-amber-600'}`}
-        >
-          <Bot className="h-4 w-4 shrink-0" />
-          <span>{isSimulating ? 'Robô Verificando...' : 'Rodar Robô Python (Simular)'}</span>
-        </button>
       </div>
 
       {robotWorkflowMessage && (

@@ -34,6 +34,9 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated, o
   // Auto format/mask phone (Brazilian formatting: XX XXXXX-XXXX)
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let clean = e.target.value.replace(/\D/g, '');
+    if (clean.startsWith('55') && clean.length > 11) {
+      clean = clean.slice(2);
+    }
     if (clean.length > 11) clean = clean.substr(0, 11);
     
     let formatted = clean;
@@ -46,6 +49,17 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated, o
       }
     }
     setPhone(formatted);
+  };
+
+  const getBrazilWhatsappDigits = (value: string) => {
+    let digits = value.replace(/\D/g, '');
+    if (digits.startsWith('55') && digits.length > 11) {
+      digits = digits.slice(2);
+    }
+    if (digits.length > 11) {
+      digits = digits.slice(-11);
+    }
+    return digits;
   };
 
   const getFullTrackingUrl = (token: string) => {
@@ -89,7 +103,7 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated, o
       alert('Favor preencher o nome e apartamento do hóspede antes de emitir.');
       return;
     }
-    const rawDigits = phone.replace(/\D/g, '');
+    const rawDigits = getBrazilWhatsappDigits(phone);
     if (rawDigits.length < 10) {
       alert('Por favor, informe um número de telefone celular válido com DDD.');
       return;
@@ -118,12 +132,12 @@ export default function QRGeneratorModal({ platform, onClose, onInviteCreated, o
       // Mount message text replacing placeholder {link} & {guest_name} if applicable
       const trackUrl = getFullTrackingUrl(invite.token);
       let text = platform.whatsapp_message_template || 'Olá {guest_name}! Agradecemos sua estadia. Nos avalie: {link}';
-      text = text.replace('{link}', trackUrl);
-      text = text.replace('{guest_name}', guestName.trim());
+      text = text.split('{link}').join(trackUrl);
+      text = text.split('{guest_name}').join(guestName.trim());
 
       // Trigger standard API URL Whatsapp
       const cleanedPhoneForWhatsapp = `55${rawDigits}`;
-      const waUrl = `https://wa.me/${cleanedPhoneForWhatsapp}?text=${encodeURIComponent(text)}`;
+      const waUrl = `https://api.whatsapp.com/send?phone=${cleanedPhoneForWhatsapp}&text=${encodeURIComponent(text)}&type=phone_number&app_absent=0`;
       setWhatsappUrl(waUrl);
 
       if (waWindow) {
