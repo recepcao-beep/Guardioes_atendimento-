@@ -1,0 +1,48 @@
+name: HITS Booking Leads Robot
+
+on:
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Data inicial YYYY-MM-DD"
+        required: true
+        type: string
+      date_to:
+        description: "Data final YYYY-MM-DD"
+        required: true
+        type: string
+
+jobs:
+  run-booking-robot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      HITS_LOGIN_URL: "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3Fresponse_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26redirect_uri%3Dhttps%253A%252F%252Fnacionalinn.hitspms.net%252FCallback%26scope%3Dopenid%2520profile%2520webapi%26nonce%3DN0.3497118249924931781537935031%26state%3D17815379350310.6791647214104694"
+      HITS_USER: ${{ secrets.HITS_USER }}
+      HITS_PASSWORD: ${{ secrets.HITS_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ROBOT_HEADLESS: "true"
+      BOOKING_DATE_FROM: ${{ inputs.date_from }}
+      BOOKING_DATE_TO: ${{ inputs.date_to }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r robot/requirements.txt
+
+      - name: Run HITS Booking robot
+        run: python robot/hits_booking_leads_robot.py

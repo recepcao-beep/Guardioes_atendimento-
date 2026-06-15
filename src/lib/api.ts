@@ -4,7 +4,7 @@ import {
   Sector, Profile, Platform, ReviewInvite, 
   InternalReview, ExternalReviewConfirmation, MonthlyPrize, 
   AuditLog, PlatformCode, InviteStatus, Complaint, ComplaintStatus,
-  RouletteOption
+  RouletteOption, BookingLead, BookingContactStatus
 } from '../types';
 
 // Helper to determine the logged-in user in client state
@@ -1773,6 +1773,107 @@ export class ApiService {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error) {
         throw new Error(payload.error || 'Falha ao salvar opcoes da roleta.');
+      }
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // --- BOOKING LEADS / HITS ROBOT ---
+  static async getBookingLeads(): Promise<BookingLead[]> {
+    if (isDemoMode) {
+      const saved = localStorage.getItem('hotel_reviews_booking_leads');
+      return Promise.resolve(saved ? JSON.parse(saved) : []);
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return [];
+
+      const response = await fetch('/api/booking-leads', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!response.ok) throw new Error('Falha ao carregar listagem Booking.');
+      const payload = await response.json();
+      return Array.isArray(payload.leads) ? payload.leads : [];
+    } catch {
+      return [];
+    }
+  }
+
+  static async updateBookingLeadContact(
+    leadId: string,
+    data: {
+      contact_status: BookingContactStatus;
+      contact_notes?: string;
+      review_converted?: boolean;
+      complaint_generated?: boolean;
+    }
+  ): Promise<{ lead: BookingLead | null; error: string | null }> {
+    const actor = getSessionUser();
+    if (isDemoMode) {
+      const saved = localStorage.getItem('hotel_reviews_booking_leads');
+      const leads: BookingLead[] = saved ? JSON.parse(saved) : [];
+      const updated = leads.map(lead => lead.id === leadId ? {
+        ...lead,
+        ...data,
+        contacted_by: actor?.id || null,
+        contacted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } : lead);
+      localStorage.setItem('hotel_reviews_booking_leads', JSON.stringify(updated));
+      return Promise.resolve({ lead: updated.find(lead => lead.id === leadId) || null, error: null });
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Sessao expirada. Entre novamente no app.');
+
+      const response = await fetch('/api/booking-lead-contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ lead_id: leadId, ...data })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Falha ao salvar contato.');
+      }
+      return { lead: payload.lead || null, error: null };
+    } catch (err: any) {
+      return { lead: null, error: err.message };
+    }
+  }
+
+  static async triggerBookingRobotWorkflow(dateFrom: string, dateTo: string): Promise<{ success: boolean; error: string | null }> {
+    if (isDemoMode) {
+      return { success: false, error: 'GitHub Actions indisponivel no modo demo.' };
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Sessao expirada. Entre novamente no app.');
+
+      const response = await fetch('/api/trigger-booking-robot-workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Falha ao disparar robo da Booking.');
       }
       return { success: true, error: null };
     } catch (err: any) {

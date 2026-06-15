@@ -160,3 +160,26 @@ export interface Complaint {
   created_at: string;
   updated_at: string;
 }
+
+export type BookingContactStatus = 'pending' | 'contacted' | 'not_contacted';
+
+export interface BookingLead {
+  id: string;
+  folio_identifier: string;
+  global_code?: string | null;
+  guest_name: string;
+  room_number: string | null;
+  stay_start: string | null;
+  stay_end: string | null;
+  phone: string | null;
+  company?: string | null;
+  status?: string | null;
+  contact_status: BookingContactStatus;
+  contact_notes?: string | null;
+  review_converted?: boolean;
+  complaint_generated?: boolean;
+  contacted_at?: string | null;
+  contacted_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
