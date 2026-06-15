@@ -178,22 +178,21 @@ export default function RouletteView({ user }: RouletteViewProps) {
 
           {segments.pool.map((option, index) => {
             const angle = index * segments.segmentSize + segments.segmentSize / 2;
+            const radians = ((angle - 90) * Math.PI) / 180;
             const Icon = prizeIconFor(option.label);
             return (
               <div
                 key={option.id}
-                className="absolute inset-0 origin-center"
-                style={{ transform: `rotate(${angle}deg)` }}
+                className="absolute flex w-[34%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 text-center sm:gap-2"
+                style={{
+                  left: `${50 + Math.cos(radians) * 31}%`,
+                  top: `${50 + Math.sin(radians) * 31}%`
+                }}
               >
-                <div
-                  className="absolute left-1/2 top-[13%] flex w-[33%] -translate-x-1/2 flex-col items-center gap-2 text-center"
-                  style={{ transform: `translateX(-50%) rotate(${-angle}deg)` }}
-                >
-                  <Icon className="h-7 w-7 text-[#adfff3]/75 drop-shadow-[0_0_8px_rgba(108,255,235,0.55)] sm:h-10 sm:w-10" strokeWidth={1.7} />
-                  <span className="block text-[9px] font-black uppercase leading-[1.05] tracking-[0.08em] text-white drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] sm:text-[13px] md:text-[15px]">
-                    {option.label}
-                  </span>
-                </div>
+                <Icon className="h-7 w-7 shrink-0 text-[#adfff3]/75 drop-shadow-[0_0_8px_rgba(108,255,235,0.55)] sm:h-10 sm:w-10" strokeWidth={1.7} />
+                <span className="block max-w-full text-[9px] font-black uppercase leading-[1.05] tracking-[0.08em] text-white drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] sm:text-[13px] md:text-[15px]">
+                  {option.label}
+                </span>
               </div>
             );
           })}

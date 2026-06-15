@@ -200,11 +200,18 @@ def login_and_filter(driver: webdriver.Chrome, date_from: str, date_to: str) -> 
 
 
 def row_xpath(index: int) -> str:
-    return f"/html/body/div[3]/div/main/div[31]/div[1]/folio-list/div/div/div[3]/div[1]/div/div[1]/div[2]/div/div[{index}]/div/div[1]"
+    return f"/html/body/div[3]/div/main/div[31]/div[1]/folio-list/div/div/div[3]/div[1]/div/div[1]/div[2]/div/div[{index}]"
 
 
 def row_pencil_xpath(index: int) -> str:
-    return f"{row_xpath(index)}/div/div/div[1]/a[1]"
+    return f"{row_xpath(index)}/div/div[1]/div/div/div[1]/a[1]"
+
+
+def element_text(driver: webdriver.Chrome, element: Any) -> str:
+    text = element.text or ""
+    if not text.strip():
+        text = driver.execute_script("return arguments[0].textContent || '';", element) or ""
+    return re.sub(r"\s+", "\n", text).strip()
 
 
 def parse_row_text(text: str) -> dict[str, str | None]:
@@ -215,14 +222,16 @@ def parse_row_text(text: str) -> dict[str, str | None]:
     folio = None
     dates = re.findall(r"\d{2}/\d{2}/\d{2,4}", joined)
     for part in parts:
-        if re.fullmatch(r"\d{2,5}", part):
+        if re.fullmatch(r"\d{2,5}(?:\s*\([^)]*\))?", part):
             room = room or part
         if "BOOKING" not in part.upper() and len(part) > 4 and re.search(r"[A-ZÁÉÍÓÚÃÕÇ]", part):
             guest = guest or part
-        if re.search(r"\d{5,}", part):
+        if re.search(r"\d{4,}-\d{3,}", part):
             folio = folio or part
+        elif re.search(r"\d{5,}", part) and not folio:
+            folio = part
     return {
-        "folio_identifier": folio or re.sub(r"\W+", "-", joined)[:80],
+        "folio_identifier": folio,
         "room_number": room,
         "guest_name": guest or "Hospede Booking",
         "stay_start": parse_br_date(dates[0]) if dates else None,
@@ -259,7 +268,14 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
         except Exception:
             break
 
-        parsed = parse_row_text(row.text)
+        row_text = element_text(driver, row)
+        parsed = parse_row_text(row_text)
+        if not parsed["folio_identifier"]:
+            parsed["folio_identifier"] = f"hits-booking-{date_from}-{date_to}-linha-{index}"
+            print(f"[HITS] Linha {index}: identificador nao encontrado, usando fallback por linha.")
+        if parsed["guest_name"] == "Hospede Booking" and not parsed["room_number"] and not parsed["raw"]:
+            print(f"[HITS] Linha {index}: sem dados legiveis, ignorando.")
+            continue
         print(f"[HITS] Linha {index}: {parsed['guest_name']} quarto={parsed['room_number']}")
 
         try:
@@ -299,7 +315,14 @@ def upsert_leads(leads: list[BookingLead]) -> None:
         return
     supabase_url = required_env("SUPABASE_URL").rstrip("/")
     service_key = required_env("SUPABASE_SERVICE_ROLE_KEY")
-    payload = [asdict(lead) for lead in leads]
+    unique_leads: dict[str, BookingLead] = {}
+    for lead in leads:
+        if lead.folio_identifier in unique_leads:
+            suffix = lead.source_payload.get("row_index") if lead.source_payload else len(unique_leads) + 1
+            lead.folio_identifier = f"{lead.folio_identifier}-{suffix}"
+        unique_leads[lead.folio_identifier] = lead
+
+    payload = [asdict(lead) for lead in unique_leads.values()]
     response = requests.post(
         f"{supabase_url}/rest/v1/booking_leads",
         headers=supabase_headers(service_key),
@@ -307,8 +330,10 @@ def upsert_leads(leads: list[BookingLead]) -> None:
         json=payload,
         timeout=60,
     )
+    if not response.ok:
+        print(f"[HITS] Erro Supabase {response.status_code}: {response.text[:1200]}")
     response.raise_for_status()
-    print(f"[HITS] Leads salvos/atualizados: {len(leads)}")
+    print(f"[HITS] Leads salvos/atualizados: {len(payload)}")
 
 
 def main() -> None:
