@@ -128,6 +128,12 @@ export interface AppSettings {
   updated_at: string;
 }
 
+export interface RouletteOption {
+  id: string;
+  label: string;
+  active: boolean;
+}
+
 export interface AuditLog {
   id: string;
   actor_user_id: string | null;
@@ -154,4 +160,3 @@ export interface Complaint {
   created_at: string;
   updated_at: string;
 }
-

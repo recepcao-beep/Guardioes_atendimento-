@@ -291,7 +291,8 @@ async function startServer() {
       }
 
       const fakeEmail = `${username.toLowerCase()}@hotelreviews.com`;
-      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      let createdNewAuthUser = true;
+      let { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: fakeEmail,
         password: password_initial,
         email_confirm: true,
@@ -299,7 +300,34 @@ async function startServer() {
       });
 
       if (authError || !authUser.user) {
-        return res.status(400).json({ error: `Erro ao registrar no Auth: ${authError?.message}` });
+        const authMessage = authError?.message || "";
+        const canRecoverExistingAuth = authMessage.toLowerCase().includes("already") || authMessage.toLowerCase().includes("registered");
+        if (!canRecoverExistingAuth) {
+          return res.status(400).json({ error: `Erro ao registrar no Auth: ${authMessage}` });
+        }
+
+        const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+        if (listError) {
+          return res.status(400).json({ error: `Usuario ja existe no Auth, mas nao foi possivel recuperar: ${listError.message}` });
+        }
+
+        const existingAuthUser = usersData.users.find(user => user.email?.toLowerCase() === fakeEmail.toLowerCase());
+        if (!existingAuthUser) {
+          return res.status(400).json({ error: "Usuario ja existe no Auth, mas nao foi localizado para sincronizar o perfil." });
+        }
+
+        createdNewAuthUser = false;
+        const { data: updatedAuth, error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(existingAuthUser.id, {
+          password: password_initial,
+          email_confirm: true,
+          user_metadata: { role: "guardian", full_name, username, must_change_password }
+        });
+
+        if (updateAuthError || !updatedAuth.user) {
+          return res.status(400).json({ error: `Erro ao atualizar credenciais existentes: ${updateAuthError?.message || "usuario nulo"}` });
+        }
+
+        authUser = updatedAuth;
       }
 
       // Insert user profile in public.profiles table
@@ -335,7 +363,9 @@ async function startServer() {
 
       if (profileError) {
         // rollback auth user if profile insertion failed
-        await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+        if (createdNewAuthUser) {
+          await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+        }
         return res.status(400).json({ error: `Erro ao criar perfil: ${profileError.message}` });
       }
 
@@ -433,6 +463,233 @@ async function startServer() {
       });
 
       return res.json({ user: profile });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/profiles-visible", async (req, res) => {
+    try {
+      const url = process.env.VITE_SUPABASE_URL || "";
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!url || !serviceKey || !anonKey) {
+        return res.status(500).json({ error: "Supabase credentials not configured on server" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+      if (!accessToken) {
+        return res.status(401).json({ error: "Sessao ausente." });
+      }
+
+      const supabaseAuth = createClient(url, anonKey);
+      const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return res.status(401).json({ error: "Sessao invalida ou expirada." });
+      }
+
+      const supabaseAdmin = createClient(url, serviceKey);
+      const { data: actorProfile, error: actorError } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (actorError || !actorProfile) {
+        return res.status(403).json({ error: "Usuario nao autorizado." });
+      }
+
+      let query = supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, username, role, sector_id, active, must_change_password, last_login_at, avatar_url, created_at, updated_at");
+
+      if (actorProfile.role !== "admin") {
+        query = query.eq("active", true);
+      }
+
+      const { data, error } = await query.order("full_name");
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      return res.json({ profiles: data || [] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/invites-visible", async (req, res) => {
+    try {
+      const url = process.env.VITE_SUPABASE_URL || "";
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!url || !serviceKey || !anonKey) {
+        return res.status(500).json({ error: "Supabase credentials not configured on server" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+      if (!accessToken) {
+        return res.status(401).json({ error: "Sessao ausente." });
+      }
+
+      const supabaseAuth = createClient(url, anonKey);
+      const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return res.status(401).json({ error: "Sessao invalida ou expirada." });
+      }
+
+      const supabaseAdmin = createClient(url, serviceKey);
+      const { data: actorProfile, error: actorError } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (actorError || !actorProfile) {
+        return res.status(403).json({ error: "Usuario nao autorizado." });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from("review_invites")
+        .select("id, issuer_user_id, issuer_sector_id, platform_id, method, status, opened_count, first_opened_at, last_opened_at, created_at, updated_at")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      const invites = (data || []).map((invite: any) => ({
+        ...invite,
+        token: "",
+        guest_phone_masked: null,
+        guest_name: null,
+        room_number: null
+      }));
+
+      return res.json({ invites });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/roulette-options", async (req, res) => {
+    try {
+      const url = process.env.VITE_SUPABASE_URL || "";
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!url || !serviceKey || !anonKey) {
+        return res.status(500).json({ error: "Supabase credentials not configured on server" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+      if (!accessToken) {
+        return res.status(401).json({ error: "Sessao ausente." });
+      }
+
+      const supabaseAuth = createClient(url, anonKey);
+      const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return res.status(401).json({ error: "Sessao invalida ou expirada." });
+      }
+
+      const supabaseAdmin = createClient(url, serviceKey);
+      const { data, error } = await supabaseAdmin
+        .from("app_settings")
+        .select("value")
+        .eq("key", "roulette_options")
+        .maybeSingle();
+
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      const options = Array.isArray(data?.value?.options)
+        ? data.value.options
+        : [
+            { id: "late-check-out", label: "Late check out", active: true },
+            { id: "espumante", label: "Espumante", active: true },
+            { id: "mesa-found", label: "Mesa de found", active: true },
+            { id: "cafe-1kg", label: "1kg de café", active: true },
+            { id: "nada", label: "Nada", active: true }
+          ];
+
+      return res.json({ options });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/roulette-options", async (req, res) => {
+    try {
+      const url = process.env.VITE_SUPABASE_URL || "";
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+      if (!url || !serviceKey || !anonKey) {
+        return res.status(500).json({ error: "Supabase credentials not configured on server" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+      if (!accessToken) {
+        return res.status(401).json({ error: "Sessao ausente." });
+      }
+
+      const supabaseAuth = createClient(url, anonKey);
+      const { data: authData, error: authError } = await supabaseAuth.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return res.status(401).json({ error: "Sessao invalida ou expirada." });
+      }
+
+      const supabaseAdmin = createClient(url, serviceKey);
+      const { data: actorProfile, error: actorError } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (actorError || !actorProfile || actorProfile.role !== "admin") {
+        return res.status(403).json({ error: "Apenas administradores podem alterar a roleta." });
+      }
+
+      const options = Array.isArray(req.body?.options)
+        ? req.body.options
+            .map((option: any, index: number) => ({
+              id: String(option.id || `opt-${Date.now()}-${index}`).trim(),
+              label: String(option.label || "").trim(),
+              active: option.active !== false
+            }))
+            .filter((option: any) => option.label.length > 0)
+        : [];
+
+      if (options.length < 2) {
+        return res.status(400).json({ error: "Cadastre pelo menos duas opcoes para a roleta." });
+      }
+
+      const { error: upsertError } = await supabaseAdmin
+        .from("app_settings")
+        .upsert({
+          key: "roulette_options",
+          value: { options },
+          updated_at: new Date().toISOString()
+        }, { onConflict: "key" });
+
+      if (upsertError) {
+        return res.status(400).json({ error: upsertError.message });
+      }
+
+      await supabaseAdmin.from("audit_logs").insert({
+        actor_user_id: authData.user.id,
+        action: "alteracao de opcoes da roleta",
+        entity_type: "app_settings",
+        entity_id: "roulette_options",
+        metadata: { options_count: options.length }
+      });
+
+      return res.json({ success: true, options });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }

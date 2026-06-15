@@ -3,7 +3,7 @@ import {
   BarChart3, Award, FileSpreadsheet, Settings, LogOut, 
   Menu, X, Users, FolderKanban, Globe, CalendarRange, 
   HelpCircle, History, ChevronDown, ChevronRight, Star,
-  Sun, Moon, Sliders, AlertTriangle
+  Sun, Moon, Sliders, AlertTriangle, Gift
 } from 'lucide-react';
 import { Profile } from '../types';
 import AppLogo from './AppLogo';
@@ -32,7 +32,8 @@ export default function Sidebar({ currentPath, navigate, user, onLogout, isDemo,
     { name: 'Painel', path: '/dashboard', icon: BarChart3 },
     { name: 'Avaliações', path: '/avaliacoes', icon: Star },
     { name: 'Classificação (Ranking)', path: '/ranking', icon: Award },
-    { name: 'Listagem Booking', path: '/listagem-booking', icon: FileSpreadsheet }
+    { name: 'Listagem Booking', path: '/listagem-booking', icon: FileSpreadsheet },
+    { name: 'Roleta', path: '/roleta', icon: Gift }
   ];
 
   const adminSublinks = [

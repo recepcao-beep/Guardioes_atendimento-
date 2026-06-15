@@ -3,7 +3,8 @@ import { DemoDb } from '../utils/demoDb';
 import { 
   Sector, Profile, Platform, ReviewInvite, 
   InternalReview, ExternalReviewConfirmation, MonthlyPrize, 
-  AuditLog, PlatformCode, InviteStatus, Complaint, ComplaintStatus
+  AuditLog, PlatformCode, InviteStatus, Complaint, ComplaintStatus,
+  RouletteOption
 } from '../types';
 
 // Helper to determine the logged-in user in client state
@@ -31,6 +32,40 @@ export const setSessionUser = (user: Profile | null) => {
   } else {
     localStorage.removeItem(SESSION_KEY);
   }
+};
+
+export const DEFAULT_ROULETTE_OPTIONS: RouletteOption[] = [
+  { id: 'late-check-out', label: 'Late check out', active: true },
+  { id: 'espumante', label: 'Espumante', active: true },
+  { id: 'mesa-found', label: 'Mesa de found', active: true },
+  { id: 'cafe-1kg', label: '1kg de café', active: true },
+  { id: 'nada', label: 'Nada', active: true }
+];
+
+export const calculateInvitePoints = (
+  status: InviteStatus,
+  weights: Record<string, number>,
+  platform?: { code?: string | null; name?: string | null; id?: string | null } | string | null
+): number => {
+  if (!['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(status)) {
+    return 0;
+  }
+
+  const raw = typeof platform === 'string'
+    ? platform
+    : [platform?.code, platform?.name, platform?.id].filter(Boolean).join(' ');
+  const channel = raw.toLowerCase();
+
+  if (channel.includes('booking')) return weights.platform_booking ?? 5;
+  if (channel.includes('trip')) return weights.platform_tripadvisor ?? 3;
+  if (channel.includes('google')) return weights.platform_google ?? 2;
+  if (channel.includes('internal') || channel.includes('myhotel') || channel.includes('my hotel') || channel.includes('nps')) {
+    return weights.platform_internal ?? weights.internal_review_completed ?? 1;
+  }
+
+  if (status === 'internal_completed') return weights.internal_review_completed ?? 1;
+  if (status === 'externally_reconciled') return weights.external_review_reconciled ?? weights.external_review_confirmed ?? 10;
+  return weights.external_review_confirmed ?? 10;
 };
 
 export class ApiService {
@@ -426,8 +461,37 @@ export class ApiService {
     try {
       const { data, error } = await supabase!.from('profiles').select('*').order('full_name');
       if (error) throw error;
+      const actor = getSessionUser();
+      if (actor?.role !== 'admin' && (!data || data.length <= 1)) {
+        const { data: sessionData } = await supabase!.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) {
+          const response = await fetch('/api/profiles-visible', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            if (Array.isArray(payload.profiles)) return payload.profiles;
+          }
+        }
+      }
       return data || [];
     } catch (e) {
+      try {
+        const { data: sessionData } = await supabase!.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) {
+          const response = await fetch('/api/profiles-visible', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            if (Array.isArray(payload.profiles)) return payload.profiles;
+          }
+        }
+      } catch {
+        // keep fallback below
+      }
       return DemoDb.getProfiles();
     }
   }
@@ -446,10 +510,12 @@ export class ApiService {
 
     try {
       // 1. Try to call the secure full-stack local server API first!
+      const { data: sessionData } = await supabase!.auth.getSession();
       const response = await fetch('/api/create-guardian', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(sessionData.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {})
         },
         body: JSON.stringify({ ...sanitizedData, actor_id: actor.id })
       });
@@ -805,8 +871,42 @@ export class ApiService {
     try {
       const { data, error } = await supabase!.from('review_invites').select('*').order('created_at', { ascending: false });
       if (error) throw error;
+      const actor = getSessionUser();
+      if (actor?.role !== 'admin') {
+        const { data: sessionData } = await supabase!.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) {
+          const response = await fetch('/api/invites-visible', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            if (Array.isArray(payload.invites)) {
+              const merged = new Map<string, ReviewInvite>();
+              payload.invites.forEach((invite: ReviewInvite) => merged.set(invite.id, invite));
+              (data || []).forEach((invite: ReviewInvite) => merged.set(invite.id, invite));
+              return Array.from(merged.values()).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            }
+          }
+        }
+      }
       return data || [];
     } catch {
+      try {
+        const { data: sessionData } = await supabase!.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (accessToken) {
+          const response = await fetch('/api/invites-visible', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            if (Array.isArray(payload.invites)) return payload.invites;
+          }
+        }
+      } catch {
+        // keep fallback below
+      }
       return DemoDb.getInvites();
     }
   }
@@ -1132,6 +1232,39 @@ export class ApiService {
       return data || [];
     } catch {
       return DemoDb.getConfirmations();
+    }
+  }
+
+  static async triggerRobotWorkflow(confirm = true): Promise<{ success: boolean; error: string | null }> {
+    if (isDemoMode) {
+      return { success: false, error: 'GitHub Actions indisponivel no modo demo.' };
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        return { success: false, error: 'Sessao expirada. Entre novamente no app.' };
+      }
+
+      const response = await fetch('/api/trigger-robot-workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ confirm })
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { success: false, error: payload.error || `Falha HTTP ${response.status}` };
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Falha ao disparar GitHub Actions.' };
     }
   }
 
@@ -1585,6 +1718,66 @@ export class ApiService {
       entity_type: 'ranking_weights',
       metadata: { [key]: val }
     });
+  }
+
+  // --- ROULETTE OPTIONS ---
+  static async getRouletteOptions(): Promise<RouletteOption[]> {
+    if (isDemoMode) {
+      const saved = localStorage.getItem('hotel_reviews_roulette_options');
+      return Promise.resolve(saved ? JSON.parse(saved) : DEFAULT_ROULETTE_OPTIONS);
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return DEFAULT_ROULETTE_OPTIONS;
+
+      const response = await fetch('/api/roulette-options', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!response.ok) throw new Error('Falha ao carregar opcoes da roleta.');
+      const payload = await response.json();
+      return Array.isArray(payload.options) && payload.options.length > 0
+        ? payload.options
+        : DEFAULT_ROULETTE_OPTIONS;
+    } catch {
+      return DEFAULT_ROULETTE_OPTIONS;
+    }
+  }
+
+  static async saveRouletteOptions(options: RouletteOption[]): Promise<{ success: boolean; error: string | null }> {
+    const actor = getSessionUser();
+    if (isDemoMode) {
+      localStorage.setItem('hotel_reviews_roulette_options', JSON.stringify(options));
+      if (actor) {
+        DemoDb.addAuditLog(actor.id, actor.full_name, 'alteracao de opcoes da roleta', 'app_settings', 'roulette_options');
+      }
+      return Promise.resolve({ success: true, error: null });
+    }
+
+    try {
+      if (!supabase) throw new Error('Supabase cliente nao inicializado.');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Sessao expirada. Entre novamente no app.');
+
+      const response = await fetch('/api/roulette-options', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ options })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Falha ao salvar opcoes da roleta.');
+      }
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }
 
   // --- ACTIONS/AUDIT LOGS ---

@@ -60,6 +60,8 @@ export default function ConciliationConfigView({
   // Interactive python script view states
   const [showPythonScript, setShowPythonScript] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
+  const [robotWorkflowLoading, setRobotWorkflowLoading] = useState(false);
+  const [robotWorkflowMessage, setRobotWorkflowMessage] = useState<string | null>(null);
 
   // Group invites by status to match the 3 requested divisions
   const pendingInvites = useMemo(() => {
@@ -400,6 +402,32 @@ export default function ConciliationConfigView({
     onRefresh();
   };
 
+  const triggerGitHubRobot = async () => {
+    setRobotWorkflowLoading(true);
+    setRobotWorkflowMessage(null);
+    setShowLogs(true);
+    setSimulationLogs(prev => [
+      ...prev,
+      `[GITHUB] Disparando robô MyHotel no GitHub Actions...`
+    ]);
+
+    try {
+      const res = await ApiService.triggerRobotWorkflow(true);
+      if (res.error) {
+        setRobotWorkflowMessage(res.error);
+        setSimulationLogs(prev => [...prev, `[GITHUB ERRO] ${res.error}`]);
+      } else {
+        setRobotWorkflowMessage('Robô disparado no GitHub Actions. Aguarde a conclusão da execução.');
+        setSimulationLogs(prev => [
+          ...prev,
+          `[GITHUB OK] Workflow iniciado. A validação real será feita em segundo plano.`
+        ]);
+      }
+    } finally {
+      setRobotWorkflowLoading(false);
+    }
+  };
+
   const truncateUrlToken = (tok: string) => {
     return tok.replace('tok-', '');
   };
@@ -424,6 +452,19 @@ export default function ConciliationConfigView({
         </div>
 
         <button
+          type="button"
+          onClick={triggerGitHubRobot}
+          disabled={robotWorkflowLoading}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-sm shrink-0 border
+            ${robotWorkflowLoading
+              ? 'bg-emerald-100 text-emerald-800 border-emerald-200 animate-pulse'
+              : 'bg-emerald-600 text-white border-emerald-700/10 hover:bg-emerald-700'}`}
+        >
+          <Bot className="h-4 w-4 shrink-0" />
+          <span>{robotWorkflowLoading ? 'Rodando na nuvem...' : 'Rodar robo na nuvem'}</span>
+        </button>
+
+        <button
           onClick={runRobotSimulation}
           disabled={isSimulating}
           className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-sm shrink-0 border
@@ -435,6 +476,12 @@ export default function ConciliationConfigView({
           <span>{isSimulating ? 'Robô Verificando...' : 'Rodar Robô Python (Simular)'}</span>
         </button>
       </div>
+
+      {robotWorkflowMessage && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800 shadow-sm">
+          {robotWorkflowMessage}
+        </div>
+      )}
 
       {/* 1.5 Webhook configuration panel */}
       <div className="bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
@@ -619,8 +666,8 @@ from selenium.webdriver.chrome.options import Options
 
 # --- CONFIGURAÇÕES PORTAL MYHOTEL (SISTEMA GUARDIÕES) ---
 LOGIN_URL = "https://fidelity.myhotel.cl/login"
-USERNAME = "governanta@vilageinn.com.br"
-PASSWORD = "Governanta2*"
+USERNAME = os.getenv("MYHOTEL_USER", "")
+PASSWORD = os.getenv("MYHOTEL_PASSWORD", "")
 
 # --- XPATHS ENVIADOS E CONFIGURADOS ---
 XPATH_USER_INPUT = "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[1]/input"

@@ -13,7 +13,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, BarChart, Bar 
 } from 'recharts';
-import { DemoDb } from '../../utils/demoDb';
+import { calculateInvitePoints } from '../../lib/api';
 
 interface DashboardViewProps {
   user: Profile;
@@ -102,6 +102,10 @@ export default function DashboardView({
     return result;
   }, [invites, selectedPeriod, selectedSector, selectedGuardian, selectedPlatform, platforms]);
 
+  const platformById = useMemo(() => {
+    return new Map(platforms.map(platform => [platform.id, platform]));
+  }, [platforms]);
+
   // --- CORE COMPUTED VALUES FOR STATS CARDS ---
   const stats = useMemo(() => {
     // Determine metrics based on current filtered dataset
@@ -145,7 +149,7 @@ export default function DashboardView({
 
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         pointsMap[emitterId].conversions += 1;
-        pointsMap[emitterId].points += DemoDb.calculatePoints(inv.status, weights, inv.platform_id);
+        pointsMap[emitterId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -166,7 +170,7 @@ export default function DashboardView({
       sectorMap[secId].emitted += 1;
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         sectorMap[secId].conversions += 1;
-        sectorMap[secId].points += DemoDb.calculatePoints(inv.status, weights, inv.platform_id);
+        sectorMap[secId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -180,7 +184,7 @@ export default function DashboardView({
       topGuardian: indRank[0] || null,
       topSector: secRank[0] || null
     };
-  }, [invites, profiles, sectors, weights]);
+  }, [invites, profiles, sectors, weights, platformById]);
 
   // Own stats (for Guardian layout)
   const ownPerformance = useMemo(() => {

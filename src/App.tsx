@@ -26,6 +26,7 @@ import PublicFormsView from './components/views/PublicFormsView';
 import PointsConfigView from './components/views/PointsConfigView';
 import ComplaintsConfigView from './components/views/ComplaintsConfigView';
 import BookingListView from './components/views/BookingListView';
+import RouletteView from './components/views/RouletteView';
 
 export default function App() {
   
@@ -475,6 +476,7 @@ export default function App() {
             user={currentUser}
             sectors={sectors}
             profiles={profiles}
+            platforms={platforms}
             invites={invites}
             weights={weights}
           />
@@ -489,6 +491,13 @@ export default function App() {
             invites={invites}
             weights={weights}
             onRefresh={triggerRefresh}
+          />
+        );
+
+      case '/roleta':
+        return (
+          <RouletteView
+            user={currentUser}
           />
         );
 

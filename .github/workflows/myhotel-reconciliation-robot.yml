@@ -1,0 +1,60 @@
+name: MyHotel Reconciliation Robot
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Confirmar matches e pontuar no app"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  run-robot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      MYHOTEL_LOGIN_URL: "https://fidelity.myhotel.cl/login"
+      MYHOTEL_USER: ${{ secrets.MYHOTEL_USER }}
+      MYHOTEL_PASSWORD: ${{ secrets.MYHOTEL_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ROBOT_HEADLESS: "true"
+      ROBOT_DRY_RUN: ${{ inputs.confirm == 'true' && 'false' || 'true' }}
+      MYHOTEL_MAX_REVIEWS: "50"
+      MYHOTEL_REQUIRE_SOURCE_MATCH: "true"
+      MATCH_THRESHOLD: "0.86"
+      XPATH_USER_INPUT: "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[1]/input"
+      XPATH_PASS_INPUT: "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[2]/input"
+      XPATH_LOGIN_BTN: "/html/body/app-root/ng-component/div/div[1]/div/div[1]/section/div[1]/div/div/ng-component/form/div[4]/div/button"
+      XPATH_ONLINE_BTN: "/html/body/app-root/ng-component/div/mat-drawer-container/mat-drawer-content/mat-sidenav-container/mat-sidenav/div/mh-navbar/aside/tree-root/div/div[4]/div/div/mh-navbar-item/div"
+      XPATH_REVIEWS_BTN: "/html/body/app-root/ng-component/div[1]/mat-drawer-container/mat-drawer-content/mat-sidenav-container/mat-sidenav/div/mh-navbar/aside/tree-root/div/div[4]/tree-node-children/div/div[3]/div/div/mh-navbar-item/a/div"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install robot dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r robot/requirements.txt
+
+      - name: Run reconciliation robot
+        run: |
+          if [ "${{ inputs.confirm }}" = "true" ]; then
+            python robot/myhotel_reconciliation_robot.py --confirm
+          else
+            python robot/myhotel_reconciliation_robot.py
+          fi

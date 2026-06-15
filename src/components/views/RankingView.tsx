@@ -3,19 +3,20 @@ import {
   Trophy, Award, Crown, Calendar, Sparkles, Filter, Info,
   TrendingUp, CheckCircle, ArrowDownCircle, UsersRound
 } from 'lucide-react';
-import { Sector, Profile, ReviewInvite } from '../../types';
-import { DemoDb } from '../../utils/demoDb';
+import { Sector, Profile, ReviewInvite, Platform } from '../../types';
+import { calculateInvitePoints } from '../../lib/api';
 
 interface RankingViewProps {
   user: Profile;
   sectors: Sector[];
   profiles: Profile[];
+  platforms: Platform[];
   invites: ReviewInvite[];
   weights: Record<string, number>;
 }
 
 export default function RankingView({
-  user, sectors, profiles, invites, weights
+  user, sectors, profiles, platforms, invites, weights
 }: RankingViewProps) {
   
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -49,6 +50,8 @@ export default function RankingView({
       return monthKey === selectedMonth;
     });
 
+    const platformById = new Map(platforms.map(platform => [platform.id, platform]));
+
     // 1. Compile individual scores
     const indScores: Record<string, {
       profile: Profile;
@@ -79,7 +82,7 @@ export default function RankingView({
 
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         indScores[em].conversionsCount += 1;
-        indScores[em].points += DemoDb.calculatePoints(inv.status, weights, inv.platform_id);
+        indScores[em].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -124,7 +127,7 @@ export default function RankingView({
       secScores[sId].emittedCount += 1;
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         secScores[sId].conversionsCount += 1;
-        secScores[sId].points += DemoDb.calculatePoints(inv.status, weights, inv.platform_id);
+        secScores[sId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -137,7 +140,7 @@ export default function RankingView({
       sectors: sortedSectors,
       topThree: sortedIndividuals.slice(0, 3)
     };
-  }, [invites, profiles, sectors, selectedMonth, selectedSector, weights]);
+  }, [invites, profiles, sectors, platforms, selectedMonth, selectedSector, weights]);
 
   // Helpers
   const getSectorName = (id: string | null) => {
