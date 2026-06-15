@@ -10,8 +10,15 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 from selenium import webdriver
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
+    StaleElementReferenceException,
+    TimeoutException,
+)
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -84,7 +91,7 @@ def br_range(date_from: str, date_to: str) -> str:
 def parse_br_date(value: str) -> str | None:
     match = re.search(r"(\d{2})/(\d{2})/(\d{2,4})", value or "")
     if not match:
-      return None
+        return None
     day, month, year = match.groups()
     year = f"20{year}" if len(year) == 2 else year
     return f"{year}-{month}-{day}"
@@ -108,15 +115,60 @@ def start_browser() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
+def safe_click(driver: webdriver.Chrome, element: Any) -> None:
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", element)
+    time.sleep(0.25)
+    try:
+        element.click()
+    except (ElementClickInterceptedException, ElementNotInteractableException, StaleElementReferenceException):
+        driver.execute_script("arguments[0].click();", element)
+
+
 def wait_click(driver: webdriver.Chrome, wait: WebDriverWait, xpath_value: str) -> None:
-    wait.until(EC.element_to_be_clickable((By.XPATH, xpath_value))).click()
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_value)))
+            safe_click(driver, element)
+            return
+        except (ElementClickInterceptedException, StaleElementReferenceException, TimeoutException) as exc:
+            last_error = exc
+            time.sleep(0.8)
+    if last_error:
+        raise last_error
 
 
 def wait_type(driver: webdriver.Chrome, wait: WebDriverWait, xpath_value: str, value: str) -> None:
     element = wait.until(EC.visibility_of_element_located((By.XPATH, xpath_value)))
-    element.click()
+    safe_click(driver, element)
     element.clear()
     element.send_keys(value)
+
+
+def confirm_open_filter(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+    apply_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'applyBtn')]")
+    for button in apply_buttons:
+        try:
+            if button.is_displayed() and button.is_enabled():
+                safe_click(driver, button)
+                time.sleep(2)
+                break
+        except (ElementNotInteractableException, StaleElementReferenceException):
+            continue
+
+    wait_click(driver, wait, xpath("XPATH_FILTER_CONFIRM"))
+
+
+def wait_type_date_range(driver: webdriver.Chrome, wait: WebDriverWait, xpath_value: str, value: str) -> None:
+    element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_value)))
+    safe_click(driver, element)
+
+    # HITS valida esse campo pelos eventos do teclado; segue o mesmo fluxo do mr.py.
+    element.send_keys(Keys.CONTROL + "a")
+    element.send_keys(Keys.DELETE)
+    element.send_keys(value)
+    element.send_keys(Keys.ENTER)
+    time.sleep(2)
 
 
 def login_and_filter(driver: webdriver.Chrome, date_from: str, date_to: str) -> None:
@@ -133,17 +185,17 @@ def login_and_filter(driver: webdriver.Chrome, date_from: str, date_to: str) -> 
 
     wait_click(driver, wait, xpath("XPATH_COMPANY_FILTER"))
     wait_type(driver, wait, xpath("XPATH_FILTER_INPUT"), "Booking.com")
-    wait_click(driver, wait, xpath("XPATH_FILTER_CONFIRM"))
+    confirm_open_filter(driver, wait)
     time.sleep(2)
 
     wait_click(driver, wait, xpath("XPATH_STATUS_FILTER"))
     wait_click(driver, wait, xpath("XPATH_STATUS_CLOSED"))
-    wait_click(driver, wait, xpath("XPATH_FILTER_CONFIRM"))
+    confirm_open_filter(driver, wait)
     time.sleep(2)
 
     wait_click(driver, wait, xpath("XPATH_DATE_FILTER"))
-    wait_type(driver, wait, xpath("XPATH_DATE_INPUT"), br_range(date_from, date_to))
-    wait_click(driver, wait, xpath("XPATH_FILTER_CONFIRM"))
+    wait_type_date_range(driver, wait, xpath("XPATH_DATE_INPUT"), br_range(date_from, date_to))
+    confirm_open_filter(driver, wait)
     time.sleep(5)
 
 
