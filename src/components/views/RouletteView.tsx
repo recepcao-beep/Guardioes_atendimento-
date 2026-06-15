@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Gift, PartyPopper, Plus, RefreshCw, Save, Sparkles, Star, Trash2, Trophy, X
+  PartyPopper, Plus, RefreshCw, Save, Sparkles, Star, Trash2, Trophy, X
 } from 'lucide-react';
 import { ApiService, DEFAULT_ROULETTE_OPTIONS } from '../../lib/api';
 import { Profile, RouletteOption } from '../../types';
@@ -78,7 +78,7 @@ export default function RouletteView({ user }: RouletteViewProps) {
       setSpinning(false);
       setShowFocus(false);
       setShowPrizeModal(true);
-    }, 3600);
+    }, 4200);
   };
 
   const addOption = () => {
@@ -115,48 +115,61 @@ export default function RouletteView({ user }: RouletteViewProps) {
   };
 
   const Wheel = ({ compact = false }: { compact?: boolean }) => (
-    <div className={`relative mx-auto ${compact ? 'w-[78vw] max-w-[430px]' : 'w-full max-w-[520px]'}`}>
-      <div className="absolute -top-5 left-1/2 z-20 -translate-x-1/2">
-        <div className="h-0 w-0 border-l-[22px] border-r-[22px] border-t-[34px] border-l-transparent border-r-transparent border-t-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,0.9)]" />
+    <div className={`relative mx-auto ${compact ? 'w-[82vw] max-w-[460px]' : 'w-full max-w-[540px]'}`}>
+      <div className="absolute -top-4 left-1/2 z-30 -translate-x-1/2">
+        <div className="rounded-t-xl border-4 border-white/80 bg-gradient-to-b from-yellow-200 to-orange-400 px-5 py-2 shadow-[0_0_22px_rgba(251,191,36,0.75)]">
+          <div className="h-0 w-0 border-l-[22px] border-r-[22px] border-t-[30px] border-l-transparent border-r-transparent border-t-yellow-300" />
+        </div>
       </div>
 
       <div
-        className={`relative aspect-square rounded-full p-[18px] bg-gradient-to-br from-orange-500 via-orange-700 to-slate-950 shadow-[0_0_40px_rgba(249,115,22,0.42)] ${spinning ? 'animate-pulse' : ''}`}
+        className={`relative aspect-square rounded-full p-4 sm:p-5 md:p-6 bg-gradient-to-br from-orange-300 via-orange-700 to-slate-950 shadow-[0_0_55px_rgba(249,115,22,0.52)] ${spinning ? 'scale-[1.015]' : ''} transition-transform duration-300`}
       >
-        <div className="absolute inset-0 rounded-full border-[10px] border-orange-600/80 shadow-inner" />
+        <div className="absolute inset-0 rounded-full border-[12px] border-orange-500/80 shadow-[inset_0_0_26px_rgba(0,0,0,0.55)]" />
+        <div className="absolute inset-[7%] rounded-full border border-yellow-300/40" />
         <div
-          className="relative h-full w-full rounded-full border-[8px] border-orange-300/80 transition-transform duration-[3600ms] ease-out overflow-hidden"
+          className="relative h-full w-full rounded-full border-[8px] border-orange-200/90 overflow-hidden will-change-transform"
           style={{
-            transform: `rotate(${spinDegrees}deg)`,
-            background: `conic-gradient(${segments.gradient})`
+            transform: spinning ? undefined : `rotate(${spinDegrees}deg)`,
+            animation: spinning ? 'roulette-spin 0.62s linear infinite' : undefined,
+            background: `conic-gradient(${segments.gradient})`,
+            boxShadow: 'inset 0 0 34px rgba(0,0,0,0.42)'
           }}
         >
-          <div className="absolute inset-[20%] rounded-full border-[6px] border-emerald-400/90 bg-slate-950/45 shadow-[inset_0_0_18px_rgba(0,0,0,0.55)]" />
+          <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,transparent_0_58%,rgba(255,255,255,0.10)_58.5%,transparent_60%)]" />
           {segments.pool.map((option, index) => {
             const angle = index * segments.segmentSize + segments.segmentSize / 2;
             return (
               <div
                 key={option.id}
-                className="absolute left-1/2 top-1/2 h-1/2 origin-top"
-                style={{ transform: `rotate(${angle}deg) translateX(-50%)` }}
+                className="absolute inset-0 origin-center"
+                style={{ transform: `rotate(${angle}deg)` }}
               >
                 <span
-                  className="block max-w-[112px] -translate-x-1/2 translate-y-5 rotate-90 text-center text-[10px] sm:text-xs font-black uppercase tracking-widest text-white drop-shadow"
+                  className="absolute left-1/2 top-[8%] block w-[34%] -translate-x-1/2 text-center text-[8px] sm:text-[10px] md:text-[11px] font-black uppercase leading-tight tracking-[0.14em] text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.65)]"
                 >
                   {option.label}
                 </span>
               </div>
             );
           })}
+          <div className="absolute inset-[25%] rounded-full border-[7px] border-emerald-400/90 bg-slate-950/50 shadow-[inset_0_0_20px_rgba(0,0,0,0.6)]" />
+          <div className="absolute inset-[36%] rounded-full border border-white/15 bg-orange-500/70" />
         </div>
 
-        <div className="absolute inset-[42%] rounded-full bg-amber-300 border-4 border-orange-500 shadow-[0_0_18px_rgba(251,191,36,0.9)] z-10" />
+        <div className="absolute inset-[43%] rounded-full bg-yellow-300 border-4 border-orange-500 shadow-[0_0_22px_rgba(251,191,36,0.95)] z-20" />
       </div>
     </div>
   );
 
   return (
     <div id="roulette-page" className="space-y-6 max-w-6xl mx-auto animate-fade-in">
+      <style>{`
+        @keyframes roulette-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-150 dark:border-slate-800 pb-5">
         <div>
           <span className="inline-flex items-center gap-2 px-3 py-1 text-[10px] uppercase font-mono font-extrabold tracking-wider bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 rounded-full">
