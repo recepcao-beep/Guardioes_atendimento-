@@ -15,7 +15,7 @@ on:
 jobs:
   run-booking-robot:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
 
     env:
       HITS_LOGIN_URL: "https://susceptor.apphotel.one/account/login?returnUrl=%2Fconnect%2Fauthorize%2Flogin%3Fresponse_type%3Did_token%2520token%26client_id%3DB37748FC-ED13-4858-AE26-28AB3512A171%26redirect_uri%3Dhttps%253A%252F%252Fnacionalinn.hitspms.net%252FCallback%26scope%3Dopenid%2520profile%2520webapi%26nonce%3DN0.3497118249924931781537935031%26state%3D17815379350310.6791647214104694"
@@ -24,6 +24,9 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       ROBOT_HEADLESS: "true"
+      HITS_MAX_ROWS: "10"
+      HITS_WAIT_SECONDS: "25"
+      HITS_PAGE_LOAD_TIMEOUT: "45"
       BOOKING_DATE_FROM: ${{ inputs.date_from }}
       BOOKING_DATE_TO: ${{ inputs.date_to }}
 
@@ -46,3 +49,11 @@ jobs:
 
       - name: Run HITS Booking robot
         run: python robot/hits_booking_leads_robot.py
+
+      - name: Upload HITS debug artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hits-booking-debug
+          path: robot/debug/
+          if-no-files-found: ignore

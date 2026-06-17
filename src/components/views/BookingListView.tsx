@@ -24,8 +24,36 @@ const toISODate = (date: Date) => {
 
 const formatDate = (value?: string | null) => {
   if (!value) return '-';
-  return new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR');
+  const raw = String(value);
+  const date = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('pt-BR');
 };
+
+const normalizeContactStatus = (value: unknown): BookingContactStatus => {
+  return value === 'contacted' || value === 'not_contacted' || value === 'pending' ? value : 'pending';
+};
+
+const normalizeLead = (lead: any, index: number): BookingLead => ({
+  id: String(lead?.id || lead?.folio_identifier || `booking-lead-${index}`),
+  folio_identifier: String(lead?.folio_identifier || `booking-lead-${index}`),
+  global_code: lead?.global_code ? String(lead.global_code) : null,
+  guest_name: String(lead?.guest_name || 'Hospede Booking'),
+  room_number: lead?.room_number ? String(lead.room_number) : null,
+  stay_start: lead?.stay_start ? String(lead.stay_start) : null,
+  stay_end: lead?.stay_end ? String(lead.stay_end) : null,
+  phone: lead?.phone ? String(lead.phone) : null,
+  company: String(lead?.company || 'BOOKING.COM'),
+  status: String(lead?.status || 'Fechado'),
+  contact_status: normalizeContactStatus(lead?.contact_status),
+  contact_notes: lead?.contact_notes ? String(lead.contact_notes) : null,
+  review_converted: !!lead?.review_converted,
+  complaint_generated: !!lead?.complaint_generated,
+  contacted_at: lead?.contacted_at ? String(lead.contacted_at) : null,
+  contacted_by: lead?.contacted_by ? String(lead.contacted_by) : null,
+  created_at: lead?.created_at ? String(lead.created_at) : new Date().toISOString(),
+  updated_at: lead?.updated_at ? String(lead.updated_at) : new Date().toISOString()
+});
 
 export default function BookingListView({
   user,
@@ -65,9 +93,15 @@ export default function BookingListView({
   const loadLeads = async () => {
     if (!isAdmin) return;
     setLoadingLeads(true);
-    const rows = await ApiService.getBookingLeads();
-    setLeads(rows);
-    setLoadingLeads(false);
+    try {
+      const rows = await ApiService.getBookingLeads();
+      setLeads((Array.isArray(rows) ? rows : []).map(normalizeLead));
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'Falha ao carregar listagem Booking.' });
+      setLeads([]);
+    } finally {
+      setLoadingLeads(false);
+    }
   };
 
   useEffect(() => {
@@ -99,7 +133,8 @@ export default function BookingListView({
 
   const openContactModal = (lead: BookingLead) => {
     setSelectedLead(lead);
-    setContactStatus(lead.contact_status === 'pending' ? 'contacted' : lead.contact_status);
+    const currentStatus = normalizeContactStatus(lead.contact_status);
+    setContactStatus(currentStatus === 'pending' ? 'contacted' : currentStatus);
     setContactNotes(lead.contact_notes || '');
     setReviewConverted(!!lead.review_converted);
     setComplaintGenerated(!!lead.complaint_generated);
@@ -121,7 +156,8 @@ export default function BookingListView({
     if (res.error) {
       setFeedback({ type: 'error', message: res.error });
     } else if (res.lead) {
-      setLeads(prev => prev.map(lead => lead.id === res.lead!.id ? res.lead! : lead));
+      const normalizedLead = normalizeLead(res.lead, 0);
+      setLeads(prev => prev.map(lead => lead.id === normalizedLead.id ? normalizedLead : lead));
       setFeedback({ type: 'success', message: 'Contato registrado com sucesso.' });
       setSelectedLead(null);
       onRefresh();

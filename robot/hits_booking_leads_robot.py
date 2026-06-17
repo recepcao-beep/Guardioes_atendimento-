@@ -4,6 +4,7 @@ import datetime as dt
 import os
 import re
 import time
+import traceback
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -82,6 +83,10 @@ def env_bool(name: str, default: bool) -> bool:
     return value.lower() in {"1", "true", "yes", "sim", "s"}
 
 
+def log(message: str) -> None:
+    print(message, flush=True)
+
+
 def br_range(date_from: str, date_to: str) -> str:
     start = dt.date.fromisoformat(date_from)
     end = dt.date.fromisoformat(date_to)
@@ -106,13 +111,19 @@ def clean_phone(value: str | None) -> str | None:
 
 def start_browser() -> webdriver.Chrome:
     options = Options()
+    options.set_capability("pageLoadStrategy", "eager")
     if env_bool("ROBOT_HEADLESS", True):
         options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-sync")
     options.add_argument("--window-size=1440,1200")
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(int(env("HITS_PAGE_LOAD_TIMEOUT", "45")))
+    return driver
 
 
 def safe_click(driver: webdriver.Chrome, element: Any) -> None:
@@ -172,31 +183,40 @@ def wait_type_date_range(driver: webdriver.Chrome, wait: WebDriverWait, xpath_va
 
 
 def login_and_filter(driver: webdriver.Chrome, date_from: str, date_to: str) -> None:
-    wait = WebDriverWait(driver, 40)
+    wait = WebDriverWait(driver, int(env("HITS_WAIT_SECONDS", "25")))
+    log("[HITS] Abrindo pagina de login...")
     driver.get(required_env("HITS_LOGIN_URL"))
+    log("[HITS] Informando usuario...")
     wait_type(driver, wait, xpath("XPATH_HITS_USER"), required_env("HITS_USER"))
+    log("[HITS] Informando senha...")
     wait_type(driver, wait, xpath("XPATH_HITS_PASSWORD"), required_env("HITS_PASSWORD"))
+    log("[HITS] Clicando em entrar...")
     wait_click(driver, wait, xpath("XPATH_HITS_LOGIN_BTN"))
     time.sleep(8)
 
     for item in ("XPATH_HITS_SIDE_MENU", "XPATH_HITS_ACCOUNT", "XPATH_HITS_SUBACCOUNT"):
+        log(f"[HITS] Navegando menu: {item}...")
         wait_click(driver, wait, xpath(item))
         time.sleep(1.5)
 
+    log("[HITS] Aplicando filtro empresa Booking.com...")
     wait_click(driver, wait, xpath("XPATH_COMPANY_FILTER"))
     wait_type(driver, wait, xpath("XPATH_FILTER_INPUT"), "Booking.com")
     confirm_open_filter(driver, wait)
     time.sleep(2)
 
+    log("[HITS] Aplicando filtro status Fechado...")
     wait_click(driver, wait, xpath("XPATH_STATUS_FILTER"))
     wait_click(driver, wait, xpath("XPATH_STATUS_CLOSED"))
     confirm_open_filter(driver, wait)
     time.sleep(2)
 
+    log(f"[HITS] Aplicando filtro data {br_range(date_from, date_to)}...")
     wait_click(driver, wait, xpath("XPATH_DATE_FILTER"))
     wait_type_date_range(driver, wait, xpath("XPATH_DATE_INPUT"), br_range(date_from, date_to))
     confirm_open_filter(driver, wait)
     time.sleep(5)
+    log("[HITS] Filtros aplicados. Iniciando leitura da lista...")
 
 
 def row_xpath(index: int) -> str:
@@ -272,18 +292,18 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
         parsed = parse_row_text(row_text)
         if not parsed["folio_identifier"]:
             parsed["folio_identifier"] = f"hits-booking-{date_from}-{date_to}-linha-{index}"
-            print(f"[HITS] Linha {index}: identificador nao encontrado, usando fallback por linha.")
+            log(f"[HITS] Linha {index}: identificador nao encontrado, usando fallback por linha.")
         if parsed["guest_name"] == "Hospede Booking" and not parsed["room_number"] and not parsed["raw"]:
-            print(f"[HITS] Linha {index}: sem dados legiveis, ignorando.")
+            log(f"[HITS] Linha {index}: sem dados legiveis, ignorando.")
             continue
-        print(f"[HITS] Linha {index}: {parsed['guest_name']} quarto={parsed['room_number']}")
+        log(f"[HITS] Linha {index}: {parsed['guest_name']} quarto={parsed['room_number']}")
 
         try:
             wait_click(driver, wait, row_pencil_xpath(index))
             time.sleep(3)
             phone = collect_phone_from_detail(driver, wait)
         except Exception as exc:
-            print(f"[HITS] Falha ao coletar telefone da linha {index}: {exc}")
+            log(f"[HITS] Falha ao coletar telefone da linha {index}: {exc}")
             phone = None
 
         leads.append(BookingLead(
@@ -311,7 +331,7 @@ def supabase_headers(service_key: str) -> dict[str, str]:
 
 def upsert_leads(leads: list[BookingLead]) -> None:
     if not leads:
-        print("[HITS] Nenhum lead para salvar.")
+        log("[HITS] Nenhum lead para salvar.")
         return
     supabase_url = required_env("SUPABASE_URL").rstrip("/")
     service_key = required_env("SUPABASE_SERVICE_ROLE_KEY")
@@ -331,20 +351,34 @@ def upsert_leads(leads: list[BookingLead]) -> None:
         timeout=60,
     )
     if not response.ok:
-        print(f"[HITS] Erro Supabase {response.status_code}: {response.text[:1200]}")
+        log(f"[HITS] Erro Supabase {response.status_code}: {response.text[:1200]}")
     response.raise_for_status()
-    print(f"[HITS] Leads salvos/atualizados: {len(payload)}")
+    log(f"[HITS] Leads salvos/atualizados: {len(payload)}")
 
 
 def main() -> None:
     load_dotenv()
     date_from = required_env("BOOKING_DATE_FROM")
     date_to = required_env("BOOKING_DATE_TO")
+    log(f"[HITS] Robo iniciado. Periodo: {date_from} ate {date_to}.")
     driver = start_browser()
     try:
         login_and_filter(driver, date_from, date_to)
         leads = scrape_leads(driver, date_from, date_to)
         upsert_leads(leads)
+    except Exception:
+        os.makedirs("robot/debug", exist_ok=True)
+        screenshot_path = "robot/debug/hits-booking-error.png"
+        html_path = "robot/debug/hits-booking-error.html"
+        try:
+            driver.save_screenshot(screenshot_path)
+            with open(html_path, "w", encoding="utf-8") as file:
+                file.write(driver.page_source)
+            log(f"[HITS] Debug salvo em {screenshot_path} e {html_path}")
+        except Exception as debug_error:
+            log(f"[HITS] Falha ao salvar debug: {debug_error}")
+        log(traceback.format_exc())
+        raise
     finally:
         driver.quit()
 
