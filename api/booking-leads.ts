@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-async function requireAdmin(req: any) {
+async function requireAuthenticatedProfile(req: any) {
   const url = process.env.VITE_SUPABASE_URL || "";
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -19,12 +19,12 @@ async function requireAdmin(req: any) {
   const supabaseAdmin = createClient(url, serviceKey);
   const { data: actorProfile, error: actorError } = await supabaseAdmin
     .from("profiles")
-    .select("role")
+    .select("role, active")
     .eq("id", authData.user.id)
     .maybeSingle();
 
-  if (actorError || !actorProfile || actorProfile.role !== "admin") {
-    return { error: "Apenas administradores podem acessar a listagem Booking.", status: 403 };
+  if (actorError || !actorProfile || actorProfile.active === false) {
+    return { error: "Perfil sem permissao para acessar a listagem Booking.", status: 403 };
   }
 
   return { userId: authData.user.id, supabaseAdmin };
@@ -40,7 +40,7 @@ export default async function handler(req: any, res: any) {
   if (req.method !== "GET") return res.status(405).json({ error: "Metodo nao permitido." });
 
   try {
-    const auth = await requireAdmin(req);
+    const auth = await requireAuthenticatedProfile(req);
     if ((auth as any).error) return res.status((auth as any).status).json({ error: (auth as any).error });
 
     const { data, error } = await (auth as any).supabaseAdmin

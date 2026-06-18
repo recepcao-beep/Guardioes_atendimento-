@@ -311,7 +311,7 @@ async function startServer() {
           return res.status(400).json({ error: `Usuario ja existe no Auth, mas nao foi possivel recuperar: ${listError.message}` });
         }
 
-        const existingAuthUser = usersData.users.find(user => user.email?.toLowerCase() === fakeEmail.toLowerCase());
+        const existingAuthUser = (usersData.users as Array<{ id: string; email?: string | null }>).find(user => user.email?.toLowerCase() === fakeEmail.toLowerCase());
         if (!existingAuthUser) {
           return res.status(400).json({ error: "Usuario ja existe no Auth, mas nao foi localizado para sincronizar o perfil." });
         }

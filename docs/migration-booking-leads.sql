@@ -33,8 +33,49 @@ CREATE INDEX IF NOT EXISTS idx_booking_leads_phone ON public.booking_leads(phone
 ALTER TABLE public.booking_leads ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS policy_booking_leads_all_for_admin ON public.booking_leads;
-CREATE POLICY policy_booking_leads_all_for_admin
+DROP POLICY IF EXISTS policy_booking_leads_select_for_active_profiles ON public.booking_leads;
+DROP POLICY IF EXISTS policy_booking_leads_update_for_active_profiles ON public.booking_leads;
+DROP POLICY IF EXISTS policy_booking_leads_insert_for_admin ON public.booking_leads;
+DROP POLICY IF EXISTS policy_booking_leads_delete_for_admin ON public.booking_leads;
+
+CREATE POLICY policy_booking_leads_select_for_active_profiles
 ON public.booking_leads
-FOR ALL TO authenticated
-USING (public.is_admin())
+FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE profiles.id = auth.uid()
+      AND profiles.active = true
+  )
+);
+
+CREATE POLICY policy_booking_leads_update_for_active_profiles
+ON public.booking_leads
+FOR UPDATE TO authenticated
+USING (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE profiles.id = auth.uid()
+      AND profiles.active = true
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE profiles.id = auth.uid()
+      AND profiles.active = true
+  )
+);
+
+CREATE POLICY policy_booking_leads_insert_for_admin
+ON public.booking_leads
+FOR INSERT TO authenticated
 WITH CHECK (public.is_admin());
+
+CREATE POLICY policy_booking_leads_delete_for_admin
+ON public.booking_leads
+FOR DELETE TO authenticated
+USING (public.is_admin());

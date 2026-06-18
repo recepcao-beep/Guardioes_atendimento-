@@ -107,7 +107,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: `Usuario ja existe no Auth, mas nao foi possivel recuperar: ${listError.message}` });
       }
 
-      const existingAuthUser = usersData.users.find(user => user.email?.toLowerCase() === email.toLowerCase());
+      const existingAuthUser = (usersData.users as Array<{ id: string; email?: string | null }>).find(user => user.email?.toLowerCase() === email.toLowerCase());
       if (!existingAuthUser) {
         return res.status(400).json({ error: "Usuario ja existe no Auth, mas nao foi localizado para sincronizar o perfil." });
       }

@@ -28,11 +28,11 @@ export default async function handler(req: any, res: any) {
     const supabaseAdmin = createClient(url, serviceKey);
     const { data: actorProfile, error: actorError } = await supabaseAdmin
       .from("profiles")
-      .select("role")
+      .select("role, active")
       .eq("id", authData.user.id)
       .maybeSingle();
-    if (actorError || !actorProfile || actorProfile.role !== "admin") {
-      return res.status(403).json({ error: "Apenas administradores podem registrar contato Booking." });
+    if (actorError || !actorProfile || actorProfile.active === false) {
+      return res.status(403).json({ error: "Perfil sem permissao para registrar contato Booking." });
     }
 
     const { lead_id, contact_status, contact_notes, review_converted, complaint_generated } = req.body || {};

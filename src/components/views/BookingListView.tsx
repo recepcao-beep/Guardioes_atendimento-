@@ -127,7 +127,6 @@ export default function BookingListView({
   const isAdmin = user.role === 'admin';
 
   const loadLeads = async () => {
-    if (!isAdmin) return;
     setLoadingLeads(true);
     try {
       const rows = await ApiService.getBookingLeads();
@@ -142,7 +141,7 @@ export default function BookingListView({
 
   useEffect(() => {
     loadLeads();
-  }, [isAdmin]);
+  }, []);
 
   const stats = useMemo(() => {
     const pending = leads.filter(lead => lead.contact_status === 'pending').length;
@@ -219,14 +218,6 @@ export default function BookingListView({
     setRobotLoading(false);
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
-        A listagem Booking contem telefone e dados de hospedagem dos hospedes. Por seguranca, esta area fica disponivel apenas para administradores.
-      </div>
-    );
-  }
-
   return (
     <div id="booking-list-root" className="space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
@@ -241,21 +232,25 @@ export default function BookingListView({
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2">
-            <Calendar className="h-4 w-4 text-slate-400" />
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="bg-transparent text-xs outline-none dark:text-white" />
-            <span className="text-slate-400 text-xs">ate</span>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="bg-transparent text-xs outline-none dark:text-white" />
-          </div>
-          <button
-            type="button"
-            onClick={triggerRobot}
-            disabled={robotLoading}
-            className="rounded-xl bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800 flex items-center justify-center gap-2 disabled:opacity-60"
-          >
-            {robotLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-            <span>{robotLoading ? 'Disparando...' : 'Buscar no HITS'}</span>
-          </button>
+          {isAdmin && (
+            <>
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2">
+                <Calendar className="h-4 w-4 text-slate-400" />
+                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="bg-transparent text-xs outline-none dark:text-white" />
+                <span className="text-slate-400 text-xs">ate</span>
+                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="bg-transparent text-xs outline-none dark:text-white" />
+              </div>
+              <button
+                type="button"
+                onClick={triggerRobot}
+                disabled={robotLoading}
+                className="rounded-xl bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800 flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {robotLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                <span>{robotLoading ? 'Disparando...' : 'Buscar no HITS'}</span>
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={loadLeads}
@@ -389,7 +384,7 @@ export default function BookingListView({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="font-sans font-bold text-slate-950 dark:text-white text-base">Registrar contato</h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">{selectedLead.guest_name} · {selectedLead.phone || 'sem telefone'}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Atualize o andamento do contato Booking.</p>
               </div>
               <button type="button" onClick={() => setSelectedLead(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50">
                 <X className="w-4 h-4" />
@@ -397,6 +392,16 @@ export default function BookingListView({
             </div>
 
             <form onSubmit={saveContact} className="space-y-4 text-xs">
+              <div className="rounded-xl border border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Hóspede</p>
+                <p className="mt-1 text-base font-sans font-black leading-tight text-slate-950 dark:text-white">
+                  {selectedLead.guest_name}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Apto. {selectedLead.room_number || '-'} · {selectedLead.phone || 'sem telefone'}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"

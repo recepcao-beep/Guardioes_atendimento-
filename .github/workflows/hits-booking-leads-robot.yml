@@ -24,7 +24,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       ROBOT_HEADLESS: "true"
-      HITS_MAX_ROWS: "10"
+      HITS_MAX_ROWS: "120"
       HITS_WAIT_SECONDS: "25"
       HITS_PAGE_LOAD_TIMEOUT: "45"
       BOOKING_DATE_FROM: ${{ inputs.date_from }}

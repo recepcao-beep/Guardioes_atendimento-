@@ -112,6 +112,30 @@ def clean_phone(value: str | None) -> str | None:
     return digits or None
 
 
+def extract_phone_candidates(value: str | None) -> list[str]:
+    if not value:
+        return []
+
+    text = re.sub(r"\s+", " ", value)
+    candidates = re.findall(r"(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[\s.-]?\d{4}", text)
+    candidates.extend(re.findall(r"\d[\d\s().+-]{7,}\d", text))
+
+    phones: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        phone = clean_phone(candidate)
+        if not phone:
+            continue
+        if len(phone) < 8 or len(phone) > 13:
+            continue
+        if re.fullmatch(r"\d{8}", phone) and re.search(r"\d{2}/\d{2}/\d{2,4}", candidate):
+            continue
+        if phone not in seen:
+            phones.append(phone)
+            seen.add(phone)
+    return phones
+
+
 def phone_input_xpaths() -> list[str]:
     configured = env("XPATH_PHONE_INPUTS")
     if configured:
@@ -134,6 +158,24 @@ def clean_guest_name(value: str | None) -> str | None:
     cleaned = cleaned.split(",")[0].strip()
     cleaned = re.sub(r"^[^A-Za-zÀ-ÿ]+", "", cleaned).strip()
     return cleaned if re.search(r"[A-Za-zÀ-ÿ]", cleaned) else None
+
+
+def looks_like_guest_name(value: str) -> bool:
+    upper = value.upper()
+    blocked = [
+        "BOOKING", "FECHADO", "CONTA", "BASE", "WALK-IN", "WALK IN",
+        "LANC", "LANÇ", "TAXA", "OBJETO", "TOTAL", "R$", "CPF",
+        "CNPJ", "TELEFONE", "CELULAR", "EMAIL", "CHECK", "GLOBAL"
+    ]
+    if any(item in upper for item in blocked):
+        return False
+    if re.search(r"\d{2}/\d{2}/\d{2,4}", value):
+        return False
+    if re.fullmatch(r"[\d\s()./-]+", value):
+        return False
+    if re.search(r"\d{4,}-\d{3,}", value):
+        return False
+    return bool(re.search(r"[A-Za-zÀ-ÿ]", value)) and len(value.strip()) >= 4
 
 
 def start_browser() -> webdriver.Chrome:
@@ -271,12 +313,14 @@ def parse_row_text(text: str) -> dict[str, str | None]:
     for part in parts:
         if re.fullmatch(r"\d{2,5}(?:\s*\([^)]*\))?", part):
             room = room or part
-        if "BOOKING" not in part.upper() and len(part) > 4 and re.search(r"[A-ZÁÉÍÓÚÃÕÇ]", part):
-            guest = guest or part
         if re.search(r"\d{4,}-\d{3,}", part):
             folio = folio or part
         elif re.search(r"\d{5,}", part) and not folio:
             folio = part
+    guest_candidates = [part for part in parts if looks_like_guest_name(part)]
+    if guest_candidates:
+        guest_candidates.sort(key=lambda item: (len(item.split()) < 2, len(item)))
+        guest = guest_candidates[0]
     guest = clean_guest_name(guest) or "Hospede Booking"
     return {
         "folio_identifier": folio,
@@ -341,24 +385,69 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
     phones: list[str] = []
     seen: set[str] = set()
 
-    def add_phone(value: str | None) -> None:
-        phone = clean_phone(value)
-        if phone and len(phone) >= 8 and phone not in seen:
-            phones.append(phone)
-            seen.add(phone)
+    phone_hints = ("tel", "telefone", "cel", "celular", "whats", "phone", "contato")
+    document_hints = ("cpf", "cnpj", "rg", "document", "passaporte", "cep", "postal")
+
+    def add_phone(value: str | None, hint: str = "") -> None:
+        hint_lower = hint.lower()
+        has_phone_hint = any(item in hint_lower for item in phone_hints)
+        has_document_hint = any(item in hint_lower for item in document_hints)
+        if has_document_hint and not has_phone_hint:
+            return
+        for phone in extract_phone_candidates(value):
+            if len(phone) == 8 and not has_phone_hint:
+                continue
+            if phone not in seen:
+                phones.append(phone)
+                seen.add(phone)
 
     for phone_xpath in phone_input_xpaths():
         for phone_el in driver.find_elements(By.XPATH, phone_xpath):
-            add_phone(phone_el.get_attribute("value") or phone_el.text)
+            add_phone(phone_el.get_attribute("value") or phone_el.text, "configured telefone")
 
     # Fallback: em alguns cadastros o HITS muda a posicao interna dos campos.
     fallback_xpath = "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]//input"
     for phone_el in driver.find_elements(By.XPATH, fallback_xpath):
-        add_phone(phone_el.get_attribute("value") or phone_el.text)
+        hint = " ".join([
+            phone_el.get_attribute("name") or "",
+            phone_el.get_attribute("id") or "",
+            phone_el.get_attribute("placeholder") or "",
+            phone_el.get_attribute("aria-label") or "",
+        ])
+        add_phone(phone_el.get_attribute("value") or phone_el.text, hint or "telefone")
 
-    # Fallback mais amplo: pega qualquer input visivel na ficha que pareca telefone.
-    for phone_el in driver.find_elements(By.XPATH, "//guest-detail//input"):
-        add_phone(phone_el.get_attribute("value") or phone_el.text)
+    dom_candidates = driver.execute_script(
+        """
+        const root = document.querySelector('guest-detail') || document.body;
+        const nodes = Array.from(root.querySelectorAll('input, textarea, [contenteditable="true"], span, div, a'));
+        const result = [];
+        const isVisible = (el) => {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        };
+        const attr = (el, name) => el.getAttribute(name) || '';
+        for (const el of nodes) {
+          if (!isVisible(el)) continue;
+          const tag = el.tagName.toLowerCase();
+          const value = 'value' in el ? String(el.value || '') : String(el.textContent || '');
+          const parentText = String(el.parentElement?.innerText || '').slice(0, 240);
+          const grandText = String(el.parentElement?.parentElement?.innerText || '').slice(0, 240);
+          const hint = [
+            tag, attr(el, 'name'), attr(el, 'id'), attr(el, 'class'), attr(el, 'type'),
+            attr(el, 'placeholder'), attr(el, 'aria-label'), attr(el, 'title'),
+            parentText, grandText
+          ].join(' ');
+          const hintLower = hint.toLowerCase();
+          const isField = tag === 'input' || tag === 'textarea' || el.isContentEditable;
+          const hasPhoneHint = /tel|telefone|celular|cel\\b|whats|phone|contato/.test(hintLower);
+          if (isField || hasPhoneHint) result.push({ value, hint });
+        }
+        return result.slice(0, 600);
+        """
+    )
+    for item in dom_candidates or []:
+        add_phone(str(item.get("value") or ""), str(item.get("hint") or ""))
 
     return " / ".join(phones) if phones else None
 

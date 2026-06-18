@@ -30,6 +30,8 @@ const prizeIconFor = (label: string) => {
 export default function RouletteView({ user }: RouletteViewProps) {
   const isAdmin = user.role === 'admin';
   const wheelRef = useRef<HTMLDivElement>(null);
+  const spinFrameRef = useRef<number | null>(null);
+  const spinTimeoutRef = useRef<number | null>(null);
   const [options, setOptions] = useState<RouletteOption[]>(DEFAULT_ROULETTE_OPTIONS);
   const [draftLabel, setDraftLabel] = useState('');
   const [winner, setWinner] = useState<RouletteOption | null>(null);
@@ -37,6 +39,7 @@ export default function RouletteView({ user }: RouletteViewProps) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [spinDegrees, setSpinDegrees] = useState(0);
+  const [wheelTransitionEnabled, setWheelTransitionEnabled] = useState(false);
   const [showFocus, setShowFocus] = useState(false);
   const [showPrizeModal, setShowPrizeModal] = useState(false);
 
@@ -48,6 +51,13 @@ export default function RouletteView({ user }: RouletteViewProps) {
     });
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (spinFrameRef.current !== null) window.cancelAnimationFrame(spinFrameRef.current);
+      if (spinTimeoutRef.current !== null) window.clearTimeout(spinTimeoutRef.current);
     };
   }, []);
 
@@ -66,20 +76,28 @@ export default function RouletteView({ user }: RouletteViewProps) {
     return { pool, segmentSize, gradient };
   }, [activeOptions]);
 
+  const canSpin = segments.pool.length >= 2;
+
   const pickRandomOption = () => {
-    const pool = activeOptions.length > 0 ? activeOptions : DEFAULT_ROULETTE_OPTIONS;
-    return pool[Math.floor(Math.random() * pool.length)];
+    return segments.pool[Math.floor(Math.random() * segments.pool.length)];
   };
 
   const spin = () => {
-    if (spinning || activeOptions.length < 2) return;
+    if (spinning) return;
+    if (!canSpin) {
+      setMessage('Cadastre pelo menos duas opcoes ativas para girar a roleta.');
+      return;
+    }
 
     wheelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (spinFrameRef.current !== null) window.cancelAnimationFrame(spinFrameRef.current);
+    if (spinTimeoutRef.current !== null) window.clearTimeout(spinTimeoutRef.current);
     setWinner(null);
     setMessage(null);
     setShowPrizeModal(false);
     setShowFocus(true);
     setSpinning(true);
+    setWheelTransitionEnabled(false);
 
     const finalWinner = pickRandomOption();
     const winnerIndex = Math.max(0, segments.pool.findIndex(option => option.id === finalWinner.id));
@@ -91,16 +109,20 @@ export default function RouletteView({ user }: RouletteViewProps) {
     const fullTurns = 7 + Math.floor(Math.random() * 3);
     const nextDegrees = spinDegrees + fullTurns * 360 + distanceToTarget;
 
-    window.setTimeout(() => {
-      setSpinDegrees(nextDegrees);
-    }, 90);
+    spinFrameRef.current = window.requestAnimationFrame(() => {
+      spinFrameRef.current = window.requestAnimationFrame(() => {
+        setWheelTransitionEnabled(true);
+        setSpinDegrees(nextDegrees);
+      });
+    });
 
-    window.setTimeout(() => {
+    spinTimeoutRef.current = window.setTimeout(() => {
       setWinner(finalWinner);
       setSpinning(false);
+      setWheelTransitionEnabled(false);
       setShowFocus(false);
       setShowPrizeModal(true);
-    }, 5800);
+    }, 5900);
   };
 
   const addOption = () => {
@@ -168,7 +190,7 @@ export default function RouletteView({ user }: RouletteViewProps) {
           className="relative h-full w-full overflow-hidden rounded-full border-[2px] border-[#cffff8]/70 will-change-transform"
           style={{
             transform: `rotate(${spinDegrees}deg)`,
-            transition: spinning ? 'transform 5.6s cubic-bezier(0.08, 0.78, 0.08, 1)' : 'transform 0.45s ease-out',
+            transition: spinning && wheelTransitionEnabled ? 'transform 5.6s cubic-bezier(0.08, 0.78, 0.08, 1)' : 'transform 0.45s ease-out',
             background: `conic-gradient(${segments.gradient})`,
             boxShadow: 'inset 0 0 46px rgba(0,0,0,0.52)'
           }}
@@ -277,10 +299,10 @@ export default function RouletteView({ user }: RouletteViewProps) {
             <button
               type="button"
               onClick={spin}
-              disabled={spinning || activeOptions.length < 2}
+              disabled={spinning || !canSpin}
               className="mx-auto h-14 min-w-56 rounded-full border-2 border-[#bafff5] bg-[linear-gradient(180deg,rgba(52,255,229,0.32),rgba(2,74,78,0.94))] px-10 text-white font-sans font-black text-xl tracking-wide shadow-[0_0_28px_rgba(67,255,232,0.68),inset_0_0_18px_rgba(255,255,255,0.16)] hover:scale-[1.02] hover:shadow-[0_0_38px_rgba(67,255,232,0.9),inset_0_0_18px_rgba(255,255,255,0.22)] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {spinning ? 'GIRANDO...' : 'JOGAR'}
+              {spinning ? 'GIRANDO...' : canSpin ? 'JOGAR' : 'CONFIGURE'}
             </button>
 
             {winner && (
