@@ -42,6 +42,9 @@ DEFAULT_XPATHS = {
     "XPATH_GUEST_LINK": "/html/body/div[3]/div/main/div[31]/div[3]/folio-detail/div[1]/div[2]/div/div[1]/div[1]/div[2]/div[1]/div[2]/div[1]/div[2]/div/a/span",
     "XPATH_GUEST_POPUP_OK": "/html/body/div[6]/div[7]/div/button",
     "XPATH_PHONE_INPUT": "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]/div/div/div/div[2]/div/input",
+    "XPATH_PHONE_INPUT_CELULAR": "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]/div/div/div/div[3]/div/input",
+    "XPATH_PHONE_INPUT_CELULAR_2": "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]/div/div/div/div[5]/div/input",
+    "XPATH_PHONE_INPUT_TELEFONE_2": "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]/div/div/div/div[6]/div/input",
     "XPATH_GUEST_BACK": "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[9]/div/div/button[1]",
     "XPATH_FOLIO_BACK": "/html/body/div[3]/div/main/div[31]/div[3]/folio-detail/div[5]/div/button[1]",
 }
@@ -107,6 +110,30 @@ def clean_phone(value: str | None) -> str | None:
         return None
     digits = re.sub(r"\D+", "", value)
     return digits or None
+
+
+def phone_input_xpaths() -> list[str]:
+    configured = env("XPATH_PHONE_INPUTS")
+    if configured:
+        return [item.strip() for item in configured.split("|") if item.strip()]
+    return [
+        xpath("XPATH_PHONE_INPUT"),
+        xpath("XPATH_PHONE_INPUT_CELULAR"),
+        xpath("XPATH_PHONE_INPUT_CELULAR_2"),
+        xpath("XPATH_PHONE_INPUT_TELEFONE_2"),
+    ]
+
+
+def clean_guest_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = re.sub(r"\s+", " ", value).strip()
+    cleaned = re.sub(r"^\d{1,2}:\d{2}\s*", "", cleaned)
+    cleaned = re.sub(r"^\d{2}/\d{2}/\d{2,4}(?:\s+\d{1,2}:\d{2})?\s*", "", cleaned)
+    cleaned = re.split(r"\s*\|\s*|BOOKING\.?COM|FECHADO|CONTA", cleaned, flags=re.IGNORECASE)[0].strip()
+    cleaned = cleaned.split(",")[0].strip()
+    cleaned = re.sub(r"^[^A-Za-zÀ-ÿ]+", "", cleaned).strip()
+    return cleaned if re.search(r"[A-Za-zÀ-ÿ]", cleaned) else None
 
 
 def start_browser() -> webdriver.Chrome:
@@ -250,10 +277,11 @@ def parse_row_text(text: str) -> dict[str, str | None]:
             folio = folio or part
         elif re.search(r"\d{5,}", part) and not folio:
             folio = part
+    guest = clean_guest_name(guest) or "Hospede Booking"
     return {
         "folio_identifier": folio,
         "room_number": room,
-        "guest_name": guest or "Hospede Booking",
+        "guest_name": guest,
         "stay_start": parse_br_date(dates[0]) if dates else None,
         "stay_end": parse_br_date(dates[-1]) if dates else None,
         "raw": joined,
@@ -268,13 +296,31 @@ def collect_phone_from_detail(driver: webdriver.Chrome, wait: WebDriverWait) -> 
     except Exception:
         pass
     time.sleep(3)
-    phone_el = wait.until(EC.presence_of_element_located((By.XPATH, xpath("XPATH_PHONE_INPUT"))))
-    phone = phone_el.get_attribute("value") or phone_el.text
+    wait.until(lambda d: any(d.find_elements(By.XPATH, item) for item in phone_input_xpaths()))
+
+    phones: list[str] = []
+    seen: set[str] = set()
+
+    for phone_xpath in phone_input_xpaths():
+        for phone_el in driver.find_elements(By.XPATH, phone_xpath):
+            phone = clean_phone(phone_el.get_attribute("value") or phone_el.text)
+            if phone and phone not in seen:
+                phones.append(phone)
+                seen.add(phone)
+
+    # Fallback: em alguns cadastros o HITS muda a posicao interna dos campos.
+    fallback_xpath = "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]//input"
+    for phone_el in driver.find_elements(By.XPATH, fallback_xpath):
+        phone = clean_phone(phone_el.get_attribute("value") or phone_el.text)
+        if phone and phone not in seen and len(phone) >= 8:
+            phones.append(phone)
+            seen.add(phone)
+
     wait_click(driver, wait, xpath("XPATH_GUEST_BACK"))
     time.sleep(2)
     wait_click(driver, wait, xpath("XPATH_FOLIO_BACK"))
     time.sleep(2)
-    return clean_phone(phone)
+    return " / ".join(phones) if phones else None
 
 
 def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list[BookingLead]:

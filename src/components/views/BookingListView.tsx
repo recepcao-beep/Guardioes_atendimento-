@@ -55,6 +55,41 @@ const normalizeLead = (lead: any, index: number): BookingLead => ({
   updated_at: lead?.updated_at ? String(lead.updated_at) : new Date().toISOString()
 });
 
+const getPhoneOptions = (phone?: string | null): string[] => {
+  if (!phone) return [];
+  const seen = new Set<string>();
+  return String(phone)
+    .split(/[\/,;|\n]+/)
+    .map(value => value.replace(/\D+/g, ''))
+    .filter(value => value.length >= 8)
+    .filter(value => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+};
+
+const formatPhone = (phone: string) => {
+  const digits = phone.replace(/\D+/g, '');
+  if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return digits;
+};
+
+const toWhatsAppPhone = (phone: string) => {
+  const digits = phone.replace(/\D+/g, '');
+  if (digits.startsWith('55')) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
+};
+
+const openWhatsAppForLead = (lead: BookingLead, phone: string) => {
+  const guestFirstName = (lead.guest_name || 'hospede').split(' ')[0];
+  const message = `Olá ${guestFirstName}, tudo bem? Aqui é da equipe do Hotel Vilage Inn. Foi um prazer receber você! Podemos te enviar o link para deixar sua avaliação sobre a hospedagem?`;
+  const url = `https://api.whatsapp.com/send?phone=${toWhatsAppPhone(phone)}&text=${encodeURIComponent(message)}&type=phone_number&app_absent=0`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
 export default function BookingListView({
   user,
   profiles,
@@ -67,6 +102,7 @@ export default function BookingListView({
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLead, setSelectedLead] = useState<BookingLead | null>(null);
+  const [selectedPhone, setSelectedPhone] = useState('');
   const [contactStatus, setContactStatus] = useState<BookingContactStatus>('contacted');
   const [contactNotes, setContactNotes] = useState('');
   const [reviewConverted, setReviewConverted] = useState(false);
@@ -132,12 +168,18 @@ export default function BookingListView({
   }, [leads, searchTerm]);
 
   const openContactModal = (lead: BookingLead) => {
+    const phones = getPhoneOptions(lead.phone);
+    const firstPhone = phones[0] || '';
     setSelectedLead(lead);
+    setSelectedPhone(firstPhone);
     const currentStatus = normalizeContactStatus(lead.contact_status);
     setContactStatus(currentStatus === 'pending' ? 'contacted' : currentStatus);
     setContactNotes(lead.contact_notes || '');
     setReviewConverted(!!lead.review_converted);
     setComplaintGenerated(!!lead.complaint_generated);
+    if (firstPhone) {
+      openWhatsAppForLead(lead, firstPhone);
+    }
   };
 
   const saveContact = async (e: React.FormEvent) => {
@@ -308,7 +350,9 @@ export default function BookingListView({
                       {formatDate(lead.stay_start)} - {formatDate(lead.stay_end)}
                     </td>
                     <td className="py-3.5 pr-3">
-                      <span className="font-mono text-slate-800 dark:text-slate-200">{lead.phone || 'Sem telefone'}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">
+                        {getPhoneOptions(lead.phone).map(formatPhone).join(' / ') || 'Sem telefone'}
+                      </span>
                     </td>
                     <td className="py-3.5 pr-3">
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${
@@ -369,6 +413,38 @@ export default function BookingListView({
                   Contato não realizado
                 </button>
               </div>
+
+              {getPhoneOptions(selectedLead.phone).length > 0 ? (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-emerald-900">WhatsApp do hóspede</span>
+                    <MessageCircle className="h-4 w-4 text-emerald-600" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {getPhoneOptions(selectedLead.phone).map(phone => (
+                      <button
+                        key={phone}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPhone(phone);
+                          openWhatsAppForLead(selectedLead, phone);
+                        }}
+                        className={`rounded-lg border px-3 py-2 text-left font-mono font-bold transition-colors ${
+                          selectedPhone === phone
+                            ? 'border-emerald-400 bg-white text-emerald-800'
+                            : 'border-emerald-100 bg-white/70 text-slate-600 hover:border-emerald-300'
+                        }`}
+                      >
+                        {formatPhone(phone)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-800">
+                  Nenhum telefone foi encontrado para este hóspede.
+                </div>
+              )}
 
               <textarea
                 rows={4}
