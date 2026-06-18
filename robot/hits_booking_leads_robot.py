@@ -288,39 +288,113 @@ def parse_row_text(text: str) -> dict[str, str | None]:
     }
 
 
-def collect_phone_from_detail(driver: webdriver.Chrome, wait: WebDriverWait) -> str | None:
+def dismiss_guest_popup(driver: webdriver.Chrome) -> None:
+    popup_xpaths = [
+        xpath("XPATH_GUEST_POPUP_OK"),
+        "//button[normalize-space()='OK']",
+        "//button[contains(translate(normalize-space(.), 'ok', 'OK'), 'OK')]",
+    ]
+    for popup_xpath in popup_xpaths:
+        try:
+            buttons = driver.find_elements(By.XPATH, popup_xpath)
+            for button in buttons:
+                if button.is_displayed() and button.is_enabled():
+                    safe_click(driver, button)
+                    time.sleep(0.8)
+                    return
+        except Exception:
+            continue
+
+
+def click_guest_link(driver: webdriver.Chrome, wait: WebDriverWait, expected_name: str | None = None) -> None:
+    wait.until(EC.presence_of_element_located((By.XPATH, "//folio-detail")))
+    expected_clean = clean_guest_name(expected_name or "") or ""
+
+    candidate_links = driver.find_elements(By.XPATH, "//folio-detail//a[.//span or normalize-space()]")
+    best_link = None
+    for link in candidate_links:
+        text = element_text(driver, link)
+        cleaned = clean_guest_name(text)
+        if not cleaned:
+            continue
+        upper = text.upper()
+        if any(blocked in upper for blocked in ["BOOKING", "BASE", "WALK-IN", "LANÇ", "TAXAS", "OBJETOS"]):
+            continue
+        if re.search(r"\d{2}/\d{2}/\d{2,4}", text):
+            continue
+        if expected_clean and expected_clean.split()[0].upper() in cleaned.upper():
+            safe_click(driver, link)
+            return
+        best_link = best_link or link
+
+    if best_link:
+        safe_click(driver, best_link)
+        return
+
     wait_click(driver, wait, xpath("XPATH_GUEST_LINK"))
-    time.sleep(1)
-    try:
-        wait_click(driver, WebDriverWait(driver, 5), xpath("XPATH_GUEST_POPUP_OK"))
-    except Exception:
-        pass
-    time.sleep(3)
-    wait.until(lambda d: any(d.find_elements(By.XPATH, item) for item in phone_input_xpaths()))
+
+
+def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait) -> str | None:
+    wait.until(EC.presence_of_element_located((By.XPATH, "//guest-detail")))
+    time.sleep(1.5)
 
     phones: list[str] = []
     seen: set[str] = set()
 
+    def add_phone(value: str | None) -> None:
+        phone = clean_phone(value)
+        if phone and len(phone) >= 8 and phone not in seen:
+            phones.append(phone)
+            seen.add(phone)
+
     for phone_xpath in phone_input_xpaths():
         for phone_el in driver.find_elements(By.XPATH, phone_xpath):
-            phone = clean_phone(phone_el.get_attribute("value") or phone_el.text)
-            if phone and phone not in seen:
-                phones.append(phone)
-                seen.add(phone)
+            add_phone(phone_el.get_attribute("value") or phone_el.text)
 
     # Fallback: em alguns cadastros o HITS muda a posicao interna dos campos.
     fallback_xpath = "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]//input"
     for phone_el in driver.find_elements(By.XPATH, fallback_xpath):
-        phone = clean_phone(phone_el.get_attribute("value") or phone_el.text)
-        if phone and phone not in seen and len(phone) >= 8:
-            phones.append(phone)
-            seen.add(phone)
+        add_phone(phone_el.get_attribute("value") or phone_el.text)
 
-    wait_click(driver, wait, xpath("XPATH_GUEST_BACK"))
-    time.sleep(2)
-    wait_click(driver, wait, xpath("XPATH_FOLIO_BACK"))
-    time.sleep(2)
+    # Fallback mais amplo: pega qualquer input visivel na ficha que pareca telefone.
+    for phone_el in driver.find_elements(By.XPATH, "//guest-detail//input"):
+        add_phone(phone_el.get_attribute("value") or phone_el.text)
+
     return " / ".join(phones) if phones else None
+
+
+def return_to_folio_list(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+    try:
+        if driver.find_elements(By.XPATH, "//guest-detail"):
+            wait_click(driver, WebDriverWait(driver, 8), xpath("XPATH_GUEST_BACK"))
+            time.sleep(1.5)
+    except Exception:
+        try:
+            driver.back()
+            time.sleep(1.5)
+        except Exception:
+            pass
+
+    try:
+        if driver.find_elements(By.XPATH, "//folio-detail"):
+            wait_click(driver, WebDriverWait(driver, 8), xpath("XPATH_FOLIO_BACK"))
+            time.sleep(1.5)
+    except Exception:
+        try:
+            driver.back()
+            time.sleep(1.5)
+        except Exception:
+            pass
+
+
+def collect_phone_from_detail(driver: webdriver.Chrome, wait: WebDriverWait, expected_name: str | None = None) -> str | None:
+    log(f"[HITS] Abrindo ficha do hospede {expected_name or ''}...")
+    click_guest_link(driver, wait, expected_name)
+    time.sleep(1)
+    dismiss_guest_popup(driver)
+    phones = collect_phones_on_guest_detail(driver, wait)
+    return_to_folio_list(driver, wait)
+    return phones
 
 
 def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list[BookingLead]:
@@ -347,9 +421,11 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
         try:
             wait_click(driver, wait, row_pencil_xpath(index))
             time.sleep(3)
-            phone = collect_phone_from_detail(driver, wait)
+            phone = collect_phone_from_detail(driver, wait, str(parsed["guest_name"]))
+            log(f"[HITS] Telefones linha {index}: {phone or 'nenhum'}")
         except Exception as exc:
             log(f"[HITS] Falha ao coletar telefone da linha {index}: {exc}")
+            return_to_folio_list(driver, wait)
             phone = None
 
         leads.append(BookingLead(

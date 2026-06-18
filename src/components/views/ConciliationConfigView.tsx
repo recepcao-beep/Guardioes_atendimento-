@@ -92,8 +92,10 @@ export default function ConciliationConfigView({
         const guardian = profiles.find(p => p.id === inv.issuer_user_id)?.full_name.toLowerCase() || '';
         const token = inv.token.toLowerCase();
         const phone = (inv.guest_phone_masked || '').toLowerCase();
+        const guest = (inv.guest_name || '').toLowerCase();
+        const room = (inv.room_number || '').toLowerCase();
         
-        if (!guardian.includes(query) && !token.includes(query) && !phone.includes(query)) {
+        if (!guardian.includes(query) && !token.includes(query) && !phone.includes(query) && !guest.includes(query) && !room.includes(query)) {
           return false;
         }
       }
@@ -113,7 +115,7 @@ export default function ConciliationConfigView({
   const handleSelectionForConciliation = (inv: ReviewInvite) => {
     setConciliatingInvite(inv);
     setAuditNotes('');
-    setGuestName('');
+    setGuestName(inv.guest_name || '');
     setErrorCode(null);
     setSuccessCode(null);
   };
@@ -430,6 +432,14 @@ export default function ConciliationConfigView({
 
   const truncateUrlToken = (tok: string) => {
     return tok.replace('tok-', '');
+  };
+
+  const getGuestDisplayName = (inv: ReviewInvite) => {
+    return inv.guest_name?.trim() || 'Hospede nao informado';
+  };
+
+  const getGuestRoomDisplay = (inv: ReviewInvite) => {
+    return inv.room_number?.trim() || 'Apto nao informado';
   };
 
   // Safe fetch of manual points weight
@@ -917,6 +927,11 @@ if __name__ == "__main__":
                           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: plat?.color || '#94a3b8' }} />
                           <span>{plat?.name || 'Canal'}</span>
                         </div>
+                        <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-2 py-1.5">
+                          <span className="block text-[9px] font-bold uppercase tracking-wide text-amber-600">Hospede da avaliacao</span>
+                          <span className="block text-[11px] font-bold text-slate-850">{getGuestDisplayName(inv)}</span>
+                          <span className="block text-[10px] text-slate-500">{getGuestRoomDisplay(inv)}</span>
+                        </div>
                       </div>
 
                       {/* Display click counter badge */}
@@ -1014,6 +1029,7 @@ if __name__ == "__main__":
                 <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   <th className="py-2.5 px-3">Cód Token</th>
                   <th className="py-2.5 px-3">Canal</th>
+                  <th className="py-2.5 px-3">Hospede</th>
                   <th className="py-2.5 px-3">Guardião</th>
                   <th className="py-2.5 px-3 text-center">Cliques</th>
                   <th className="py-2.5 px-3 text-right">Ação</th>
@@ -1022,7 +1038,7 @@ if __name__ == "__main__":
               <tbody className="text-xs divide-y divide-slate-50 text-slate-700">
                 {activeFilteredList.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-slate-400 font-light">
+                    <td colSpan={6} className="py-12 text-center text-slate-400 font-light">
                       Nenhum convite localizado para este filtro de busca.
                     </td>
                   </tr>
@@ -1046,6 +1062,12 @@ if __name__ == "__main__":
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: plat?.color || '#94a3b8' }} />
                             <span>{plat?.name || 'Canal'}</span>
                           </span>
+                        </td>
+                        <td className="py-3 px-3">
+                          <div>
+                            <p className="font-bold text-slate-850">{getGuestDisplayName(inv)}</p>
+                            <p className="text-[10px] text-slate-400">{getGuestRoomDisplay(inv)}</p>
+                          </div>
                         </td>
                         <td className="py-3 px-3">
                           <div>
@@ -1162,6 +1184,11 @@ if __name__ == "__main__":
                 <p className="text-slate-600 font-light leading-relaxed">
                   Criado em: <strong>{new Date(conciliatingInvite.created_at).toLocaleDateString('pt-BR')}</strong> por <strong>{profiles.find(p => p.id === conciliatingInvite.issuer_user_id)?.full_name}</strong>
                 </p>
+                <div className="pt-2 border-t border-slate-200">
+                  <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">Hospede informado no QR Code</span>
+                  <p className="mt-0.5 text-sm font-extrabold text-slate-900">{getGuestDisplayName(conciliatingInvite)}</p>
+                  <p className="text-[10px] text-slate-500">{getGuestRoomDisplay(conciliatingInvite)}</p>
+                </div>
               </div>
 
               {errorCode && (
@@ -1182,7 +1209,7 @@ if __name__ == "__main__":
                 
                 <div className="space-y-1">
                   <label className="block text-[10px] font-bold text-slate-500 uppercase">
-                    Nome do Hóspede (Opcional)
+                    Nome do Hospede / Autor da Avaliacao
                   </label>
                   <input
                     type="text"
