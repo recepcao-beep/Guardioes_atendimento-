@@ -418,6 +418,14 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
             continue
         log(f"[HITS] Linha {index}: {parsed['guest_name']} quarto={parsed['room_number']}")
 
+        if not parsed["room_number"]:
+            log(f"[HITS] Linha {index}: ignorada porque nao foi possivel identificar o quarto.")
+            continue
+
+        if parsed["guest_name"] == "Hospede Booking":
+            log(f"[HITS] Linha {index}: ignorada porque o nome do hospede nao foi identificado com seguranca.")
+            continue
+
         try:
             wait_click(driver, wait, row_pencil_xpath(index))
             time.sleep(3)
@@ -427,6 +435,10 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
             log(f"[HITS] Falha ao coletar telefone da linha {index}: {exc}")
             return_to_folio_list(driver, wait)
             phone = None
+
+        if not phone:
+            log(f"[HITS] Linha {index}: ignorada porque nenhum telefone valido foi coletado.")
+            continue
 
         leads.append(BookingLead(
             folio_identifier=str(parsed["folio_identifier"]),
