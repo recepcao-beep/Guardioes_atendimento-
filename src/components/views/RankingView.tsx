@@ -82,7 +82,7 @@ export default function RankingView({
 
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         indScores[em].conversionsCount += 1;
-        indScores[em].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
+        indScores[em].points += calculateInvitePoints(inv.status, weights, inv.platforms || platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -127,7 +127,7 @@ export default function RankingView({
       secScores[sId].emittedCount += 1;
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         secScores[sId].conversionsCount += 1;
-        secScores[sId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
+        secScores[sId].points += calculateInvitePoints(inv.status, weights, inv.platforms || platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 

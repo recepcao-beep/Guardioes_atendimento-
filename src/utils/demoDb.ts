@@ -1292,7 +1292,7 @@ export class DemoDb {
     if (id.includes('booking')) {
       return weights.platform_booking ?? 5;
     }
-    if (id.includes('tripadvisor')) {
+    if (id.includes('trip')) {
       return weights.platform_tripadvisor ?? 3;
     }
     if (id.includes('google')) {

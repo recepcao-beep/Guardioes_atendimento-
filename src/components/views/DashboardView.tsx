@@ -149,7 +149,7 @@ export default function DashboardView({
 
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         pointsMap[emitterId].conversions += 1;
-        pointsMap[emitterId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
+        pointsMap[emitterId].points += calculateInvitePoints(inv.status, weights, inv.platforms || platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 
@@ -170,7 +170,7 @@ export default function DashboardView({
       sectorMap[secId].emitted += 1;
       if (['internal_completed', 'externally_verified_manual', 'externally_reconciled'].includes(inv.status)) {
         sectorMap[secId].conversions += 1;
-        sectorMap[secId].points += calculateInvitePoints(inv.status, weights, platformById.get(inv.platform_id) || inv.platform_id);
+        sectorMap[secId].points += calculateInvitePoints(inv.status, weights, inv.platforms || platformById.get(inv.platform_id) || inv.platform_id);
       }
     });
 

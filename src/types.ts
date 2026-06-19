@@ -67,6 +67,11 @@ export interface ReviewInvite {
   updated_at: string;
   guest_name?: string | null;
   room_number?: string | null;
+  platforms?: {
+    id?: string | null;
+    code?: PlatformCode | string | null;
+    name?: string | null;
+  } | null;
 }
 
 export interface ReviewEvent {

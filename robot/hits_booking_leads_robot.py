@@ -296,11 +296,45 @@ def row_pencil_xpath(index: int) -> str:
     return f"{row_xpath(index)}/div/div[1]/div/div/div[1]/a[1]"
 
 
+def row_room_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[4]"
+
+
+def row_guest_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[7]/div"
+
+
 def element_text(driver: webdriver.Chrome, element: Any) -> str:
     text = element.text or ""
     if not text.strip():
         text = driver.execute_script("return arguments[0].textContent || '';", element) or ""
     return re.sub(r"\s+", "\n", text).strip()
+
+
+def text_by_xpath(driver: webdriver.Chrome, xpath_value: str) -> str | None:
+    try:
+        elements = driver.find_elements(By.XPATH, xpath_value)
+        for element in elements:
+            text = element_text(driver, element)
+            if text:
+                return text
+    except Exception:
+        return None
+    return None
+
+
+def element_value(driver: webdriver.Chrome, element: Any) -> str:
+    value = element.get_attribute("value") or element.text or ""
+    if value.strip():
+        return value
+    try:
+        value = driver.execute_script(
+            "return arguments[0].value || arguments[0].getAttribute('value') || arguments[0].textContent || arguments[0].innerText || '';",
+            element
+        ) or ""
+    except Exception:
+        value = ""
+    return str(value)
 
 
 def parse_row_text(text: str) -> dict[str, str | None]:
@@ -401,9 +435,13 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
                 phones.append(phone)
                 seen.add(phone)
 
-    for phone_xpath in phone_input_xpaths():
-        for phone_el in driver.find_elements(By.XPATH, phone_xpath):
-            add_phone(phone_el.get_attribute("value") or phone_el.text, "configured telefone")
+    for _ in range(5):
+        for phone_xpath in phone_input_xpaths():
+            for phone_el in driver.find_elements(By.XPATH, phone_xpath):
+                add_phone(element_value(driver, phone_el), "configured telefone")
+        if phones:
+            break
+        time.sleep(0.8)
 
     # Fallback: em alguns cadastros o HITS muda a posicao interna dos campos.
     fallback_xpath = "/html/body/div[3]/div/main/div[6]/div[2]/guest-detail/div[1]/div[2]/div/fieldset/div/form/div[9]//input"
@@ -414,7 +452,7 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
             phone_el.get_attribute("placeholder") or "",
             phone_el.get_attribute("aria-label") or "",
         ])
-        add_phone(phone_el.get_attribute("value") or phone_el.text, hint or "telefone")
+        add_phone(element_value(driver, phone_el), hint or "telefone")
 
     dom_candidates = driver.execute_script(
         """
@@ -499,6 +537,14 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
 
         row_text = element_text(driver, row)
         parsed = parse_row_text(row_text)
+
+        explicit_room = text_by_xpath(driver, row_room_xpath(index))
+        explicit_guest = text_by_xpath(driver, row_guest_xpath(index))
+        if explicit_room:
+            parsed["room_number"] = explicit_room.splitlines()[0].strip()
+        if explicit_guest:
+            parsed["guest_name"] = clean_guest_name(explicit_guest) or parsed["guest_name"]
+
         if not parsed["folio_identifier"]:
             parsed["folio_identifier"] = f"hits-booking-{date_from}-{date_to}-linha-{index}"
             log(f"[HITS] Linha {index}: identificador nao encontrado, usando fallback por linha.")

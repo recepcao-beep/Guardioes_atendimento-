@@ -869,7 +869,10 @@ export class ApiService {
       return Promise.resolve(DemoDb.getInvites());
     }
     try {
-      const { data, error } = await supabase!.from('review_invites').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase!
+        .from('review_invites')
+        .select('*, platforms(id, code, name)')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       const actor = getSessionUser();
       if (actor?.role !== 'admin') {
