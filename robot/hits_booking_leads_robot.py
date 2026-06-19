@@ -136,6 +136,32 @@ def extract_phone_candidates(value: str | None) -> list[str]:
     return phones
 
 
+def possible_phone(value: str | None) -> str | None:
+    phone = clean_phone(value)
+    if not phone:
+        return None
+    # BR phones normally have 10/11 digits, but HITS may store without DDI.
+    if 8 <= len(phone) <= 13:
+        return phone
+    return None
+
+
+def phones_from_contact_text(value: str | None) -> list[str]:
+    if not value:
+        return []
+    phones: list[str] = []
+    # Limit extraction to contact labels so CPF, voucher, ZIP and dates do not leak in.
+    pattern = re.compile(
+        r"(?:Celular\s*2|Celular|Telefone\s*2|Telefone)\s*[:\n\r\t ]+([+()0-9 .\-]{8,24})",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(value):
+        phone = possible_phone(match.group(1))
+        if phone:
+            phones.append(phone)
+    return phones
+
+
 def phone_input_xpaths() -> list[str]:
     configured = env("XPATH_PHONE_INPUTS")
     if configured:
@@ -435,10 +461,36 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
                 phones.append(phone)
                 seen.add(phone)
 
+    def add_phones_from_contact_text(value: str | None) -> None:
+        for phone in phones_from_contact_text(value):
+            add_phone(phone, "telefone contato")
+
+    def rich_element_value(element: Any) -> str:
+        try:
+            value = driver.execute_script(
+                """
+                const el = arguments[0];
+                return [
+                  el.value,
+                  el.getAttribute('value'),
+                  el.getAttribute('ng-value'),
+                  el.getAttribute('aria-label'),
+                  el.getAttribute('title'),
+                  el.getAttribute('placeholder'),
+                  el.textContent,
+                  el.innerText
+                ].filter(Boolean).join('\\n');
+                """,
+                element,
+            )
+            return str(value or "")
+        except Exception:
+            return element_value(driver, element)
+
     for _ in range(5):
         for phone_xpath in phone_input_xpaths():
             for phone_el in driver.find_elements(By.XPATH, phone_xpath):
-                add_phone(element_value(driver, phone_el), "configured telefone")
+                add_phone(rich_element_value(phone_el), "configured telefone")
         if phones:
             break
         time.sleep(0.8)
@@ -452,7 +504,45 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
             phone_el.get_attribute("placeholder") or "",
             phone_el.get_attribute("aria-label") or "",
         ])
-        add_phone(element_value(driver, phone_el), hint or "telefone")
+        add_phone(rich_element_value(phone_el), hint or "telefone")
+
+    # Bloco "Contatos": pega Celular, Telefone, Celular 2 e Telefone 2 quando o HITS renderiza texto cinza.
+    for contact_block in driver.find_elements(
+        By.XPATH,
+        "//guest-detail//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'contatos')]",
+    ):
+        try:
+            add_phones_from_contact_text(element_text(driver, contact_block))
+        except Exception:
+            continue
+
+    # Inputs gerais com contexto pai: necessario para campos desabilitados/cinza como no cadastro do Ricardo.
+    for phone_el in driver.find_elements(By.XPATH, "//guest-detail//input"):
+        hint = " ".join([
+            phone_el.get_attribute("name") or "",
+            phone_el.get_attribute("id") or "",
+            phone_el.get_attribute("placeholder") or "",
+            phone_el.get_attribute("aria-label") or "",
+            phone_el.get_attribute("title") or "",
+        ])
+        try:
+            context = driver.execute_script(
+                """
+                let node = arguments[0];
+                const parts = [];
+                for (let i = 0; i < 6 && node; i += 1) {
+                  parts.push(node.innerText || node.textContent || '');
+                  node = node.parentElement;
+                }
+                return parts.join('\\n');
+                """,
+                phone_el,
+            )
+            hint = f"{hint} {context or ''}"
+        except Exception:
+            context = ""
+        add_phone(rich_element_value(phone_el), hint or "telefone")
+        add_phones_from_contact_text(f"{context or ''}\n{rich_element_value(phone_el)}")
 
     dom_candidates = driver.execute_script(
         """
@@ -486,6 +576,45 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
     )
     for item in dom_candidates or []:
         add_phone(str(item.get("value") or ""), str(item.get("hint") or ""))
+
+    # Ultimo fallback via JS: o Angular/HITS as vezes renderiza valor cinza que nao aparece no .text do Selenium.
+    try:
+        fields = driver.execute_script(
+            """
+            const root = document.querySelector('guest-detail') || document;
+            const out = [];
+            root.querySelectorAll('input, textarea').forEach((el) => {
+              let node = el;
+              const context = [];
+              for (let i = 0; i < 6 && node; i += 1) {
+                context.push(node.innerText || node.textContent || '');
+                node = node.parentElement;
+              }
+              out.push({
+                value: [
+                  el.value,
+                  el.getAttribute('value'),
+                  el.getAttribute('ng-value'),
+                  el.getAttribute('aria-label'),
+                  el.getAttribute('title'),
+                  el.getAttribute('placeholder')
+                ].filter(Boolean).join('\\n'),
+                context: context.join('\\n')
+              });
+            });
+            return out;
+            """
+        ) or []
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            context = str(field.get("context") or "")
+            value = str(field.get("value") or "")
+            if re.search(r"Celular|Telefone", context, re.IGNORECASE):
+                add_phone(value, context)
+                add_phones_from_contact_text(f"{context}\n{value}")
+    except Exception:
+        pass
 
     return " / ".join(phones) if phones else None
 
