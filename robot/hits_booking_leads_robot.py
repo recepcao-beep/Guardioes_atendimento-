@@ -322,8 +322,24 @@ def row_pencil_xpath(index: int) -> str:
     return f"{row_xpath(index)}/div/div[1]/div/div/div[1]/a[1]"
 
 
+def row_global_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[2]"
+
+
+def row_identifier_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[3]"
+
+
 def row_room_xpath(index: int) -> str:
     return f"{row_xpath(index)}/div/div[4]"
+
+
+def row_open_date_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[5]"
+
+
+def row_close_date_xpath(index: int) -> str:
+    return f"{row_xpath(index)}/div/div[6]"
 
 
 def row_guest_xpath(index: int) -> str:
@@ -667,10 +683,22 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
         row_text = element_text(driver, row)
         parsed = parse_row_text(row_text)
 
+        explicit_global = text_by_xpath(driver, row_global_xpath(index))
+        explicit_identifier = text_by_xpath(driver, row_identifier_xpath(index))
         explicit_room = text_by_xpath(driver, row_room_xpath(index))
+        explicit_open_date = text_by_xpath(driver, row_open_date_xpath(index))
+        explicit_close_date = text_by_xpath(driver, row_close_date_xpath(index))
         explicit_guest = text_by_xpath(driver, row_guest_xpath(index))
+        if explicit_identifier:
+            parsed["folio_identifier"] = explicit_identifier.splitlines()[0].strip()
+        if explicit_global:
+            parsed["global_code"] = explicit_global.splitlines()[0].strip()
         if explicit_room:
             parsed["room_number"] = explicit_room.splitlines()[0].strip()
+        if explicit_open_date:
+            parsed["stay_start"] = parse_br_date(explicit_open_date) or parsed["stay_start"]
+        if explicit_close_date:
+            parsed["stay_end"] = parse_br_date(explicit_close_date) or parsed["stay_end"]
         if explicit_guest:
             parsed["guest_name"] = clean_guest_name(explicit_guest) or parsed["guest_name"]
 
@@ -701,12 +729,11 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
             phone = None
 
         if not phone:
-            log(f"[HITS] Linha {index}: ignorada porque nenhum telefone valido foi coletado.")
-            continue
+            log(f"[HITS] Linha {index}: sem telefone valido; salvando mesmo assim para atualizar nome/quarto.")
 
         leads.append(BookingLead(
             folio_identifier=str(parsed["folio_identifier"]),
-            global_code=None,
+            global_code=str(parsed.get("global_code") or "") or None,
             guest_name=str(parsed["guest_name"]),
             room_number=parsed["room_number"],
             stay_start=parsed["stay_start"] or date_from,
@@ -739,6 +766,28 @@ def upsert_leads(leads: list[BookingLead]) -> None:
             suffix = lead.source_payload.get("row_index") if lead.source_payload else len(unique_leads) + 1
             lead.folio_identifier = f"{lead.folio_identifier}-{suffix}"
         unique_leads[lead.folio_identifier] = lead
+
+    for lead in unique_leads.values():
+        if lead.phone:
+            continue
+        try:
+            existing = requests.get(
+                f"{supabase_url}/rest/v1/booking_leads",
+                headers=supabase_headers(service_key),
+                params={
+                    "select": "phone",
+                    "folio_identifier": f"eq.{lead.folio_identifier}",
+                    "limit": "1",
+                },
+                timeout=20,
+            )
+            if existing.ok:
+                rows = existing.json()
+                if rows and rows[0].get("phone"):
+                    lead.phone = rows[0]["phone"]
+                    log(f"[HITS] Telefone existente preservado para {lead.folio_identifier}.")
+        except Exception as exc:
+            log(f"[HITS] Aviso: nao foi possivel consultar telefone existente de {lead.folio_identifier}: {exc}")
 
     payload = [asdict(lead) for lead in unique_leads.values()]
     response = requests.post(
