@@ -476,6 +476,71 @@ def click_guest_link(driver: webdriver.Chrome, wait: WebDriverWait, expected_nam
     wait_click(driver, wait, xpath("XPATH_GUEST_LINK"))
 
 
+def guest_link_candidates(driver: webdriver.Chrome, expected_name: str | None = None) -> list[tuple[int, str]]:
+    expected_clean = clean_guest_name(expected_name or "") or ""
+    candidates: list[tuple[int, str, bool]] = []
+    links = driver.find_elements(By.XPATH, "//folio-detail//a[.//span or normalize-space()]")
+    for position, link in enumerate(links, start=1):
+        text = element_text(driver, link)
+        cleaned = clean_guest_name(text)
+        if not cleaned:
+            continue
+        upper = text.upper()
+        if any(blocked in upper for blocked in ["BOOKING", "BASE", "WALK-IN", "LANÃ‡", "TAXAS", "OBJETOS"]):
+            continue
+        if re.search(r"\d{2}/\d{2}/\d{2,4}", text):
+            continue
+        if not looks_like_guest_name(cleaned):
+            continue
+        matches_expected = bool(expected_clean and expected_clean.split()[0].upper() in cleaned.upper())
+        candidates.append((position, cleaned, matches_expected))
+
+    candidates.sort(key=lambda item: (not item[2], item[0]))
+    seen: set[str] = set()
+    ordered: list[tuple[int, str]] = []
+    for position, cleaned, _ in candidates:
+        key = normalize_key(cleaned)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append((position, cleaned))
+    return ordered
+
+
+def return_to_folio_detail(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+    for _ in range(3):
+        if visible_xpath(driver, "//folio-detail"):
+            return
+        if visible_xpath(driver, "//guest-detail"):
+            try:
+                wait_click(driver, WebDriverWait(driver, 5), xpath("XPATH_GUEST_BACK"))
+                time.sleep(1.2)
+                continue
+            except Exception:
+                pass
+        try:
+            driver.back()
+            time.sleep(1.2)
+        except Exception:
+            break
+    wait.until(EC.presence_of_element_located((By.XPATH, "//folio-detail")))
+
+
+def merge_phone_strings(*values: str | None) -> str | None:
+    phones: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for phone in re.split(r"\s*/\s*|[,;|\n]+", value):
+            cleaned = clean_phone(phone)
+            if not cleaned or cleaned in seen:
+                continue
+            phones.append(cleaned)
+            seen.add(cleaned)
+    return " / ".join(phones) if phones else None
+
+
 def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait) -> str | None:
     wait.until(EC.presence_of_element_located((By.XPATH, "//guest-detail")))
     time.sleep(1.5)
@@ -734,11 +799,36 @@ def return_to_folio_list(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
 
 def collect_phone_from_detail(driver: webdriver.Chrome, wait: WebDriverWait, expected_name: str | None = None) -> str | None:
     log(f"[HITS] Abrindo ficha do hospede {expected_name or ''}...")
+    collected: str | None = None
     try:
-        click_guest_link(driver, wait, expected_name)
-        time.sleep(1)
-        dismiss_guest_popup(driver)
-        return collect_phones_on_guest_detail(driver, wait)
+        wait.until(EC.presence_of_element_located((By.XPATH, "//folio-detail")))
+        candidates = guest_link_candidates(driver, expected_name)
+        if not candidates:
+            candidates = [(0, expected_name or "hospede principal")]
+
+        for position, guest_name in candidates:
+            try:
+                return_to_folio_detail(driver, wait)
+                if position:
+                    links = driver.find_elements(By.XPATH, "//folio-detail//a[.//span or normalize-space()]")
+                    if position - 1 >= len(links):
+                        continue
+                    safe_click(driver, links[position - 1])
+                else:
+                    click_guest_link(driver, wait, expected_name)
+                time.sleep(1)
+                dismiss_guest_popup(driver)
+                phone = collect_phones_on_guest_detail(driver, wait)
+                if phone:
+                    log(f"[HITS] Telefones encontrados em {guest_name}: {phone}")
+                collected = merge_phone_strings(collected, phone)
+            except Exception as exc:
+                log(f"[HITS] Nao consegui ler cadastro vinculado {guest_name}: {exc}")
+                try:
+                    return_to_folio_detail(driver, wait)
+                except Exception:
+                    pass
+        return collected
     finally:
         if browser_is_alive(driver):
             return_to_folio_list(driver, wait)
