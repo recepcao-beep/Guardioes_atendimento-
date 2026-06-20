@@ -5,6 +5,7 @@ import os
 import re
 import time
 import traceback
+import unicodedata
 from dataclasses import dataclass, asdict
 from typing import Any
 
@@ -88,6 +89,27 @@ def env_bool(name: str, default: bool) -> bool:
 
 def log(message: str) -> None:
     print(message, flush=True)
+
+
+def browser_is_alive(driver: webdriver.Chrome) -> bool:
+    try:
+        return len(driver.window_handles) > 0
+    except Exception:
+        return False
+
+
+def save_debug_snapshot(driver: webdriver.Chrome, label: str) -> None:
+    try:
+        os.makedirs("robot/debug", exist_ok=True)
+        safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-")[:80] or "snapshot"
+        screenshot_path = f"robot/debug/{safe_label}.png"
+        html_path = f"robot/debug/{safe_label}.html"
+        driver.save_screenshot(screenshot_path)
+        with open(html_path, "w", encoding="utf-8") as file:
+            file.write(driver.page_source)
+        log(f"[HITS] Debug da linha salvo em {screenshot_path} e {html_path}")
+    except Exception as exc:
+        log(f"[HITS] Nao foi possivel salvar debug '{label}': {exc}")
 
 
 def br_range(date_from: str, date_to: str) -> str:
@@ -635,38 +657,91 @@ def collect_phones_on_guest_detail(driver: webdriver.Chrome, wait: WebDriverWait
     return " / ".join(phones) if phones else None
 
 
-def return_to_folio_list(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+def visible_xpath(driver: webdriver.Chrome, xpath_value: str) -> bool:
     try:
-        if driver.find_elements(By.XPATH, "//guest-detail"):
-            wait_click(driver, WebDriverWait(driver, 8), xpath("XPATH_GUEST_BACK"))
-            time.sleep(1.5)
+        return any(element.is_displayed() for element in driver.find_elements(By.XPATH, xpath_value))
     except Exception:
+        return False
+
+
+def folio_list_visible(driver: webdriver.Chrome) -> bool:
+    return visible_xpath(driver, row_xpath(1)) and not visible_xpath(driver, "//folio-detail | //guest-detail")
+
+
+def ensure_folio_list(driver: webdriver.Chrome, date_from: str, date_to: str) -> bool:
+    if folio_list_visible(driver):
+        return True
+    log("[HITS] Lista nao esta visivel; reabrindo a listagem filtrada antes de continuar...")
+    try:
+        return_to_folio_list(driver, WebDriverWait(driver, 8))
+    except Exception:
+        pass
+    if folio_list_visible(driver):
+        return True
+    try:
+        login_and_filter(driver, date_from, date_to)
+        return folio_list_visible(driver) or visible_xpath(driver, row_xpath(1))
+    except Exception as exc:
+        log(f"[HITS] Nao consegui reabrir a listagem filtrada: {exc}")
+        return False
+
+
+def return_to_folio_list(driver: webdriver.Chrome, wait: WebDriverWait) -> None:
+    if not browser_is_alive(driver):
+        return
+
+    for _ in range(5):
+        if folio_list_visible(driver):
+            return
+
+        if visible_xpath(driver, "//guest-detail"):
+            try:
+                wait_click(driver, WebDriverWait(driver, 5), xpath("XPATH_GUEST_BACK"))
+                time.sleep(1.5)
+                continue
+            except Exception:
+                try:
+                    driver.back()
+                    time.sleep(1.5)
+                    continue
+                except Exception:
+                    pass
+
+        if visible_xpath(driver, "//folio-detail"):
+            try:
+                wait_click(driver, WebDriverWait(driver, 5), xpath("XPATH_FOLIO_BACK"))
+                time.sleep(1.5)
+                continue
+            except Exception:
+                try:
+                    driver.back()
+                    time.sleep(1.5)
+                    continue
+                except Exception:
+                    pass
+
         try:
             driver.back()
             time.sleep(1.5)
         except Exception:
-            pass
+            break
 
     try:
-        if driver.find_elements(By.XPATH, "//folio-detail"):
-            wait_click(driver, WebDriverWait(driver, 8), xpath("XPATH_FOLIO_BACK"))
-            time.sleep(1.5)
+        wait.until(EC.presence_of_element_located((By.XPATH, row_xpath(1))))
     except Exception:
-        try:
-            driver.back()
-            time.sleep(1.5)
-        except Exception:
-            pass
+        pass
 
 
 def collect_phone_from_detail(driver: webdriver.Chrome, wait: WebDriverWait, expected_name: str | None = None) -> str | None:
     log(f"[HITS] Abrindo ficha do hospede {expected_name or ''}...")
-    click_guest_link(driver, wait, expected_name)
-    time.sleep(1)
-    dismiss_guest_popup(driver)
-    phones = collect_phones_on_guest_detail(driver, wait)
-    return_to_folio_list(driver, wait)
-    return phones
+    try:
+        click_guest_link(driver, wait, expected_name)
+        time.sleep(1)
+        dismiss_guest_popup(driver)
+        return collect_phones_on_guest_detail(driver, wait)
+    finally:
+        if browser_is_alive(driver):
+            return_to_folio_list(driver, wait)
 
 
 def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list[BookingLead]:
@@ -675,6 +750,10 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
     max_rows = int(env("HITS_MAX_ROWS", "80"))
 
     for index in range(1, max_rows + 1):
+        if not ensure_folio_list(driver, date_from, date_to):
+            log(f"[HITS] Linha {index}: lista indisponivel, interrompendo leitura.")
+            break
+
         try:
             row = wait.until(EC.presence_of_element_located((By.XPATH, row_xpath(index))))
         except Exception:
@@ -725,7 +804,12 @@ def scrape_leads(driver: webdriver.Chrome, date_from: str, date_to: str) -> list
             log(f"[HITS] Telefones linha {index}: {phone or 'nenhum'}")
         except Exception as exc:
             log(f"[HITS] Falha ao coletar telefone da linha {index}: {exc}")
-            return_to_folio_list(driver, wait)
+            if browser_is_alive(driver):
+                save_debug_snapshot(driver, f"booking-linha-{index}-{parsed['guest_name']}")
+                return_to_folio_list(driver, wait)
+            else:
+                log("[HITS] Navegador foi fechado; encerrando leitura das proximas linhas.")
+                break
             phone = None
 
         if not phone:
@@ -754,6 +838,87 @@ def supabase_headers(service_key: str) -> dict[str, str]:
     }
 
 
+def normalize_key(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKD", value)
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    normalized = re.sub(r"[^A-Za-z0-9]+", " ", normalized).strip().lower()
+    return normalized
+
+
+def guest_names_compatible(left: str | None, right: str | None) -> bool:
+    left_key = normalize_key(clean_guest_name(left) or left)
+    right_key = normalize_key(clean_guest_name(right) or right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    left_parts = left_key.split()
+    right_parts = right_key.split()
+    if not left_parts or not right_parts:
+        return False
+    return left_parts[0] == right_parts[0] and (left_key in right_key or right_key in left_key)
+
+
+def should_delete_superseded_lead(existing: dict[str, Any], lead: BookingLead) -> bool:
+    existing_folio = str(existing.get("folio_identifier") or "")
+    if not existing_folio or existing_folio == lead.folio_identifier:
+        return False
+
+    lead_folio = str(lead.folio_identifier)
+    existing_room = str(existing.get("room_number") or "").strip()
+    same_or_dirty_folio = lead_folio in existing_folio or existing_folio in lead_folio
+    same_guest = guest_names_compatible(str(existing.get("guest_name") or ""), lead.guest_name)
+
+    if same_or_dirty_folio:
+        return True
+    if same_guest and lead.room_number and not existing_room:
+        return True
+    return False
+
+
+def cleanup_superseded_leads(supabase_url: str, service_key: str, leads: list[BookingLead]) -> None:
+    for lead in leads:
+        if not lead.stay_start or not lead.stay_end:
+            continue
+        try:
+            response = requests.get(
+                f"{supabase_url}/rest/v1/booking_leads",
+                headers=supabase_headers(service_key),
+                params={
+                    "select": "id,folio_identifier,guest_name,room_number,stay_start,stay_end",
+                    "stay_start": f"eq.{lead.stay_start}",
+                    "stay_end": f"eq.{lead.stay_end}",
+                },
+                timeout=20,
+            )
+            if not response.ok:
+                log(f"[HITS] Aviso: limpeza de duplicados falhou consulta {response.status_code}: {response.text[:300]}")
+                continue
+            for existing in response.json() or []:
+                if not should_delete_superseded_lead(existing, lead):
+                    continue
+                existing_id = existing.get("id")
+                if not existing_id:
+                    continue
+                delete_response = requests.delete(
+                    f"{supabase_url}/rest/v1/booking_leads",
+                    headers=supabase_headers(service_key),
+                    params={"id": f"eq.{existing_id}"},
+                    timeout=20,
+                )
+                if delete_response.ok:
+                    log(
+                        "[HITS] Duplicado antigo removido: "
+                        f"{existing.get('guest_name')} / {existing.get('folio_identifier')}"
+                    )
+                else:
+                    log(f"[HITS] Aviso: nao removeu duplicado {existing_id}: {delete_response.text[:300]}")
+        except Exception as exc:
+            log(f"[HITS] Aviso: erro na limpeza de duplicados de {lead.folio_identifier}: {exc}")
+
+
 def upsert_leads(leads: list[BookingLead]) -> None:
     if not leads:
         log("[HITS] Nenhum lead para salvar.")
@@ -767,28 +932,6 @@ def upsert_leads(leads: list[BookingLead]) -> None:
             lead.folio_identifier = f"{lead.folio_identifier}-{suffix}"
         unique_leads[lead.folio_identifier] = lead
 
-    for lead in unique_leads.values():
-        if lead.phone:
-            continue
-        try:
-            existing = requests.get(
-                f"{supabase_url}/rest/v1/booking_leads",
-                headers=supabase_headers(service_key),
-                params={
-                    "select": "phone",
-                    "folio_identifier": f"eq.{lead.folio_identifier}",
-                    "limit": "1",
-                },
-                timeout=20,
-            )
-            if existing.ok:
-                rows = existing.json()
-                if rows and rows[0].get("phone"):
-                    lead.phone = rows[0]["phone"]
-                    log(f"[HITS] Telefone existente preservado para {lead.folio_identifier}.")
-        except Exception as exc:
-            log(f"[HITS] Aviso: nao foi possivel consultar telefone existente de {lead.folio_identifier}: {exc}")
-
     payload = [asdict(lead) for lead in unique_leads.values()]
     response = requests.post(
         f"{supabase_url}/rest/v1/booking_leads",
@@ -801,6 +944,7 @@ def upsert_leads(leads: list[BookingLead]) -> None:
         log(f"[HITS] Erro Supabase {response.status_code}: {response.text[:1200]}")
     response.raise_for_status()
     log(f"[HITS] Leads salvos/atualizados: {len(payload)}")
+    cleanup_superseded_leads(supabase_url, service_key, list(unique_leads.values()))
 
 
 def main() -> None:
