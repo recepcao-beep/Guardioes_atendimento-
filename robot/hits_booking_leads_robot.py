@@ -870,33 +870,77 @@ def should_delete_superseded_lead(existing: dict[str, Any], lead: BookingLead) -
     existing_room = str(existing.get("room_number") or "").strip()
     same_or_dirty_folio = lead_folio in existing_folio or existing_folio in lead_folio
     same_guest = guest_names_compatible(str(existing.get("guest_name") or ""), lead.guest_name)
+    same_stay = (
+        str(existing.get("stay_start") or "") == str(lead.stay_start or "")
+        and str(existing.get("stay_end") or "") == str(lead.stay_end or "")
+    )
+    existing_has_legacy_noise = bool(re.search(r"\d{2}/\d{2}/\d{2,4}", existing_folio))
+    if lead_folio and existing_folio.count(lead_folio) > 1:
+        existing_has_legacy_noise = True
 
     if same_or_dirty_folio:
         return True
     if same_guest and lead.room_number and not existing_room:
         return True
+    if same_guest and same_stay and existing_has_legacy_noise:
+        return True
     return False
 
 
-def cleanup_superseded_leads(supabase_url: str, service_key: str, leads: list[BookingLead]) -> None:
-    for lead in leads:
-        if not lead.stay_start or not lead.stay_end:
-            continue
+def duplicate_candidate_params(lead: BookingLead) -> list[dict[str, str]]:
+    params_list: list[dict[str, str]] = []
+    if lead.stay_start and lead.stay_end:
+        params_list.append({
+            "stay_start": f"eq.{lead.stay_start}",
+            "stay_end": f"eq.{lead.stay_end}",
+        })
+
+    lead_folio = str(lead.folio_identifier or "").strip()
+    if lead_folio:
+        params_list.append({"folio_identifier": f"ilike.*{lead_folio}*"})
+
+    global_code = str(lead.global_code or "").strip()
+    if global_code and global_code != lead_folio:
+        params_list.append({"global_code": f"eq.{global_code}"})
+
+    return params_list
+
+
+def fetch_duplicate_candidates(supabase_url: str, service_key: str, lead: BookingLead) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for filter_params in duplicate_candidate_params(lead):
         try:
             response = requests.get(
                 f"{supabase_url}/rest/v1/booking_leads",
                 headers=supabase_headers(service_key),
                 params={
-                    "select": "id,folio_identifier,guest_name,room_number,stay_start,stay_end",
-                    "stay_start": f"eq.{lead.stay_start}",
-                    "stay_end": f"eq.{lead.stay_end}",
+                    "select": "id,folio_identifier,global_code,guest_name,room_number,stay_start,stay_end",
+                    **filter_params,
                 },
                 timeout=20,
             )
             if not response.ok:
-                log(f"[HITS] Aviso: limpeza de duplicados falhou consulta {response.status_code}: {response.text[:300]}")
+                log(
+                    "[HITS] Aviso: limpeza de duplicados falhou consulta "
+                    f"{response.status_code}: {response.text[:300]}"
+                )
                 continue
-            for existing in response.json() or []:
+            for item in response.json() or []:
+                existing_id = str(item.get("id") or "")
+                if not existing_id or existing_id in seen_ids:
+                    continue
+                seen_ids.add(existing_id)
+                candidates.append(item)
+        except Exception as exc:
+            log(f"[HITS] Aviso: erro consultando duplicados de {lead.folio_identifier}: {exc}")
+    return candidates
+
+
+def cleanup_superseded_leads(supabase_url: str, service_key: str, leads: list[BookingLead]) -> None:
+    for lead in leads:
+        try:
+            for existing in fetch_duplicate_candidates(supabase_url, service_key, lead):
                 if not should_delete_superseded_lead(existing, lead):
                     continue
                 existing_id = existing.get("id")
@@ -949,6 +993,7 @@ def upsert_leads(leads: list[BookingLead]) -> None:
 
 def main() -> None:
     load_dotenv()
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
     date_from = required_env("BOOKING_DATE_FROM")
     date_to = required_env("BOOKING_DATE_TO")
     log(f"[HITS] Robo iniciado. Periodo: {date_from} ate {date_to}.")
